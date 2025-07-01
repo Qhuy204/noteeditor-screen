@@ -2,6 +2,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Quyền cần thiết để ghi âm thanh từ micrô -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!--
+        Quyền WRITE_EXTERNAL_STORAGE và READ_EXTERNAL_STORAGE chỉ cần thiết cho API cấp 28 trở xuống.
+        Nếu ứng dụng của bạn nhắm mục tiêu API 29 trở lên và bạn đang lưu trữ tệp trong thư mục riêng của ứng dụng (ví dụ: context.cacheDir),
+        thì bạn không cần các quyền này.
+        Nếu bạn cần lưu trữ tệp ở các vị trí chung, hãy xem xét sử dụng MediaStore API.
+    -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
     <uses-feature
         android:name="android.hardware.camera"
         android:required="false" />

@@ -27,7 +27,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
-import com.example.noteeditor.*
+import com.example.noteeditor.* // Import all classes from noteeditor package
+import java.util.concurrent.TimeUnit // Import TimeUnit for duration formatting
 
 /**
  * [REWORK] The Composable now uses the block's paragraphStyle for the overall text field
@@ -40,30 +41,26 @@ fun TextBlockComposable(
     onValueChange: (TextFieldValue) -> Unit,
     onFocusChange: (FocusState) -> Unit
 ) {
-    // The base style for the text field. It respects the paragraph style (e.g., alignment).
-    // Character styles will be overridden by the spans in the AnnotatedString.
     val baseTextStyle = ComposeTextStyle.Default.merge(block.paragraphStyle)
 
     BasicTextField(
-        value = block.value, // The value now contains the AnnotatedString with all its styles
+        value = block.value,
         onValueChange = onValueChange,
         modifier = Modifier
             .fillMaxWidth()
             .onFocusChanged(onFocusChange)
             .padding(horizontal = 4.dp, vertical = 2.dp),
-        textStyle = baseTextStyle, // Apply the base paragraph style
+        textStyle = baseTextStyle,
         decorationBox = { innerTextField ->
             Row(verticalAlignment = Alignment.Top) {
                 if (block.isListItem) {
                     Text(
                         text = "• ",
                         modifier = Modifier.padding(end = 8.dp),
-                        // The bullet point should inherit the base text style for consistency
                         style = baseTextStyle
                     )
                 }
                 Box(modifier = Modifier.weight(1f)) {
-                    // Placeholder logic
                     if (block.value.annotatedString.isEmpty()) {
                         Text("Gõ nội dung...", color = Color.Gray, style = baseTextStyle)
                     }
@@ -73,9 +70,6 @@ fun TextBlockComposable(
         }
     )
 }
-
-
-// --- Other Composables (Image, Checkbox, etc.) remain unchanged ---
 
 @Composable
 fun ImageBlockComposable(
@@ -212,33 +206,96 @@ fun SeparatorBlockComposable() {
 }
 
 @Composable
-fun AudioBlockComposable(block: AudioBlock, onDelete: () -> Unit) {
+fun AudioBlockComposable(
+    block: AudioBlock,
+    onDelete: () -> Unit,
+    onTogglePlaying: (String, String?) -> Unit,
+    onStopRecording: () -> Unit // Giữ lại callback này nếu muốn hiển thị nút dừng trong khối
+) {
+    val backgroundColor = Color(0xFFFFF7E6) // Màu nền nhạt tương tự ảnh
+    val accentColor = Color(0xFFFFC700) // Màu vàng/cam cho biểu tượng và sóng âm
+
+    // Hàm định dạng thời lượng (để sử dụng cục bộ trong Composable nếu cần)
+    fun formatDuration(millis: Long): String {
+        val minutes = TimeUnit.MILLISECONDS.toMinutes(millis)
+        val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) - TimeUnit.MINUTES.toSeconds(minutes)
+        return String.format("%02d:%02d", minutes, seconds)
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(12.dp), // Góc bo tròn lớn hơn
+        colors = CardDefaults.cardColors(containerColor = backgroundColor),
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 0.dp) // Tăng padding để rộng hơn
+                .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Icon(Icons.Default.PlayCircle, contentDescription = "Play", modifier = Modifier.size(32.dp))
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(30.dp)
-                    .padding(horizontal = 12.dp)
-                    .background(Color.LightGray.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-            )
-            Text(block.duration, style = MaterialTheme.typography.bodySmall)
-            IconButton(onClick = { /*TODO: Play*/ }) {
-                Icon(Icons.Default.VolumeUp, "Play/Pause", tint = Color.Gray)
+            // [CẬP NHẬT UI] Chỉ hiển thị UI phát lại cho khối âm thanh đã lưu
+            // UI ghi âm sẽ nằm ở RecordingScreen riêng
+            IconButton(
+                onClick = { onTogglePlaying(block.id, block.filePath) },
+                enabled = block.filePath != null
+            ) {
+                Icon(
+                    imageVector = if (block.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, // Play/Pause
+                    contentDescription = if (block.isPlaying) "Pause" else "Play",
+                    tint = accentColor, // Màu vàng/cam
+                    modifier = Modifier.size(32.dp)
+                )
             }
+
+
+            Spacer(Modifier.width(12.dp))
+
+            // Thời lượng và sóng âm
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = block.duration, // Luôn hiển thị duration đã lưu
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = accentColor,
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+
+                // Giả lập sóng âm (waveform)
+                val waveformHeights = remember {
+                    List(20) {
+                        (5..20).random().dp
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .height(24.dp)
+                        .weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    waveformHeights.forEach { height ->
+                        Box(
+                            modifier = Modifier
+                                .width(2.dp)
+                                .height(height)
+                                .background(accentColor, RoundedCornerShape(1.dp))
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.width(12.dp))
+
+            // Nút xóa (chỉ hiển thị khi không ghi âm)
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.DeleteOutline, "Delete", tint = Color.Gray)
+                Icon(Icons.Default.Delete, "Delete", tint = Color.Gray)
             }
         }
     }

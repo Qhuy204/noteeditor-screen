@@ -1,6 +1,8 @@
 package com.example.noteeditor
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -25,6 +27,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.noteeditor.composables.*
@@ -45,12 +48,20 @@ fun NoteEditorScreen(
     val lazyListState = rememberLazyListState()
     var showAddMoreMenu by remember { mutableStateOf(false) }
 
-    // [MỚI] State để hiển thị bottom sheet chọn nguồn ảnh
     var showImageSourceSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    // [MỚI] State để giữ Uri của ảnh chụp từ camera
     var tempImageUri by remember { mutableStateOf<Uri?>(null) }
+
+    val requestRecordAudioPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            viewModel.startNewAudioRecording(context)
+        } else {
+            Log.w("NoteEditorScreen", "RECORD_AUDIO permission denied.")
+        }
+    }
 
     LaunchedEffect(Unit) {
         Log.d("NoteEditorDebug", "NoteEditorScreen recomposed.")
@@ -58,12 +69,14 @@ fun NoteEditorScreen(
 
     LaunchedEffect(isKeyboardVisible) {
         if (!isKeyboardVisible) {
-            viewModel.toggleTextFormatToolbar(false)
+            // Khi bàn phím ẩn, không tự động tắt các thanh công cụ nữa
+            // vì người dùng có thể đang dùng thanh công cụ định dạng
+            // viewModel.toggleTextFormatToolbar(false)
             viewModel.onImageClick("")
+            viewModel.stopPlaying()
         }
     }
 
-    // [MỚI] Hàm trợ giúp để tạo Uri cho tệp ảnh mới
     fun createImageUri(context: Context): Uri {
         val file = File.createTempFile(
             "JPEG_${System.currentTimeMillis()}_",
@@ -72,20 +85,17 @@ fun NoteEditorScreen(
         )
         return FileProvider.getUriForFile(
             Objects.requireNonNull(context),
-            // Authority này phải khớp với khai báo trong AndroidManifest.xml
             "com.example.noteeditor.provider",
             file
         )
     }
 
-    // Trình khởi chạy để chọn ảnh từ thư viện (không đổi)
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let { viewModel.addImageAtCursor(it) }
     }
 
-    // [MỚI] Trình khởi chạy để chụp ảnh bằng camera
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
@@ -133,27 +143,46 @@ fun NoteEditorScreen(
             }
         },
         bottomBar = {
-            TransformingBottomToolbar(
-                isKeyboardVisible = isKeyboardVisible,
-                isFormattingMode = uiState.isTextFormatToolbarVisible,
-                activeStyles = uiState.activeStyles,
-                onToggleFormattingMode = { viewModel.toggleTextFormatToolbar(!uiState.isTextFormatToolbarVisible) },
-                // [THAY ĐỔI] Hiển thị bottom sheet thay vì mở trực tiếp thư viện
-                onAddImageClick = { showImageSourceSheet = true },
-                onAddCheckboxClick = { viewModel.addCheckbox() },
-                onAddAudioClick = { viewModel.addAudioBlock() },
-                onAddMoreClick = { showAddMoreMenu = it },
-                onStyleChange = { viewModel.toggleStyle(it) },
-                onTextAlignChange = { viewModel.setTextAlign(it) },
-                onListStyleChange = { viewModel.toggleListStyle() },
-                onAddSeparator = { viewModel.addSeparator() },
-                onFontSizeChange = { viewModel.setFontSize(it) },
-                onTextColorChange = { viewModel.setTextColor(it) },
-                onTextBgColorChange = { viewModel.setTextBackgroundColor(it) }
-            )
+            // [THAY ĐỔI] Cập nhật thanh công cụ để xử lý trạng thái ghi âm
+            Column(Modifier.imePadding()) {
+                TransformingBottomToolbar(
+                    isKeyboardVisible = isKeyboardVisible,
+                    // Text Formatting
+                    isFormattingMode = uiState.isTextFormatToolbarVisible,
+                    activeStyles = uiState.activeStyles,
+                    onToggleFormattingMode = { viewModel.toggleTextFormatToolbar(!uiState.isTextFormatToolbarVisible) },
+                    onStyleChange = { viewModel.toggleStyle(it) },
+                    onTextAlignChange = { viewModel.setTextAlign(it) },
+                    onListStyleChange = { viewModel.toggleListStyle() },
+                    onAddSeparator = { viewModel.addSeparator() },
+                    onFontSizeChange = { viewModel.setFontSize(it) },
+                    onTextColorChange = { viewModel.setTextColor(it) },
+                    onTextBgColorChange = { viewModel.setTextBackgroundColor(it) },
+                    // Main Actions
+                    onAddImageClick = { showImageSourceSheet = true },
+                    onAddCheckboxClick = { viewModel.addCheckbox() },
+                    onAddMoreClick = { showAddMoreMenu = it },
+                    // Recording
+                    isRecordingActive = uiState.isRecordingActive,
+                    recordingDuration = uiState.currentRecordingAudioBlock?.duration ?: "00:00",
+                    onAddAudioClick = {
+                        // Luôn bắt đầu ghi âm mới khi nhấn nút này
+                        if (ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+                        ) {
+                            viewModel.startNewAudioRecording(context)
+                        } else {
+                            requestRecordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                    onSaveRecording = { viewModel.saveRecordedAudio() },
+                    onCancelRecording = { viewModel.cancelRecording() }
+                )
+            }
         }
     ) { paddingValues ->
-        // [MỚI] Bottom sheet để chọn nguồn ảnh
         if (showImageSourceSheet) {
             ModalBottomSheet(onDismissRequest = { showImageSourceSheet = false }) {
                 Column(Modifier.padding(bottom = 32.dp)) {
@@ -270,7 +299,12 @@ fun NoteEditorScreen(
                         }
                     )
                     is SeparatorBlock -> SeparatorBlockComposable()
-                    is AudioBlock -> AudioBlockComposable(block, onDelete = { viewModel.deleteBlock(block.id) })
+                    is AudioBlock -> AudioBlockComposable(
+                        block,
+                        onDelete = { viewModel.deleteBlock(block.id) },
+                        onTogglePlaying = { id, path -> viewModel.togglePlaying(id, path) },
+                        onStopRecording = { viewModel.saveRecordedAudio() } // Chức năng này không còn dùng ở đây
+                    )
                     is AccordionBlock -> AccordionBlockComposable(block, onToggle = { viewModel.onAccordionToggled(block.id) })
                     is ToggleSwitchBlock -> ToggleSwitchBlockComposable(block, onToggle = { viewModel.onToggleSwitchChanged(block.id, it) })
                     is RadioGroupBlock -> RadioGroupBlockComposable(block, onSelectionChange = { viewModel.onRadioSelectionChanged(block.id, it) })
@@ -280,5 +314,7 @@ fun NoteEditorScreen(
                 }
             }
         }
+
+        // [XÓA] Toàn bộ khối AnimatedVisibility cho RecordingScreen đã bị xóa.
     }
 }

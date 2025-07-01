@@ -1,24 +1,36 @@
+// File: NoteViewModel.kt
 package com.example.noteeditor
 
+import android.content.Context
+import android.media.MediaPlayer
+import android.media.MediaRecorder
 import android.net.Uri
+import android.os.Build
 import android.util.Log
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.TextUnit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.noteeditor.composables.Style
+import com.example.noteeditor.composables.Style // Import Style enum
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
+import java.io.File
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 class NoteViewModel : ViewModel() {
 
@@ -33,9 +45,14 @@ class NoteViewModel : ViewModel() {
     private val _canRedo = MutableStateFlow(false)
     val canRedo: StateFlow<Boolean> = _canRedo.asStateFlow()
 
-    // [MỚI] State để lưu các style sẽ được áp dụng cho văn bản tiếp theo
     private val _pendingStyles = MutableStateFlow<Set<Style>>(emptySet())
     val pendingStyles: StateFlow<Set<Style>> = _pendingStyles.asStateFlow()
+
+    private var mediaRecorder: MediaRecorder? = null
+    private var mediaPlayer: MediaPlayer? = null
+    private var currentRecordingFilePath: String? = null
+    private var currentPlayingAudioBlockId: String? = null
+    private var recordingJob: Job? = null
 
     private fun saveForUndo() {
         undoStack.add(_uiState.value.deepCopy())
@@ -82,38 +99,29 @@ class NoteViewModel : ViewModel() {
         _uiState.value.title = newTitle
     }
 
-    /**
-     * [THAY ĐỔI] Xử lý việc áp dụng các style đang chờ (pending styles) khi người dùng gõ.
-     */
     fun onContentBlockChange(blockId: String, newValue: TextFieldValue) {
         val block = _uiState.value.content.find { it.id == blockId }
         when (block) {
             is TextBlock -> {
                 val oldValue = block.value
 
-                // Nếu văn bản không đổi, người dùng chỉ thay đổi vị trí con trỏ.
-                // Ta sẽ xóa các style đang chờ để tránh áp dụng chúng ở vị trí mới.
                 if (oldValue.text == newValue.text) {
                     block.value = oldValue.copy(
                         selection = newValue.selection,
                         composition = newValue.composition
                     )
-                    // [MỚI] Xóa pending styles khi di chuyển con trỏ
                     if (_pendingStyles.value.isNotEmpty()) {
                         _pendingStyles.value = emptySet()
                     }
                     return
                 }
 
-                // Nếu văn bản đã thay đổi (gõ, dán, xóa, etc.).
                 val builder = AnnotatedString.Builder(newValue.annotatedString)
 
-                // Mang tất cả các style đã có từ trước sang.
                 oldValue.annotatedString.spanStyles.forEach {
                     builder.addStyle(it.item, it.start, it.end)
                 }
 
-                // [MỚI] Nếu người dùng đang gõ thêm văn bản và có style đang chờ, áp dụng chúng.
                 val textAdded = newValue.text.length > oldValue.text.length
                 if (textAdded && _pendingStyles.value.isNotEmpty()) {
                     val start = oldValue.selection.start
@@ -134,9 +142,6 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-    /**
-     * [MỚI] Helper function để tạo một SpanStyle duy nhất từ một Set các Style enums.
-     */
     private fun createCombinedSpanStyle(styles: Set<Style>): SpanStyle {
         var combined = SpanStyle()
         if (styles.contains(Style.BOLD)) combined = combined.merge(SpanStyle(fontWeight = FontWeight.Bold))
@@ -146,18 +151,11 @@ class NoteViewModel : ViewModel() {
         return combined
     }
 
-
-    /**
-     * [THAY ĐỔI] Áp dụng hoặc bật/tắt một style.
-     * - Nếu có text được chọn, áp dụng style cho vùng chọn đó.
-     * - Nếu không có text được chọn, bật/tắt style đó trong danh sách pending.
-     */
     fun toggleStyle(style: Style) {
         val focusedId = _uiState.value.focusedBlockId ?: return
         val block = _uiState.value.content.find { it.id == focusedId } as? TextBlock ?: return
         val selection = block.value.selection
 
-        // Trường hợp 1: Có văn bản được chọn -> áp dụng style như cũ
         if (!selection.collapsed) {
             performUndoableAction {
                 val builder = AnnotatedString.Builder(block.value.annotatedString)
@@ -189,9 +187,7 @@ class NoteViewModel : ViewModel() {
                 builder.addStyle(newSpanStyle, selection.start, selection.end)
                 block.value = block.value.copy(annotatedString = builder.toAnnotatedString())
             }
-        }
-        // Trường hợp 2: Không có văn bản được chọn -> Bật/tắt pending style
-        else {
+        } else {
             val currentStyles = _pendingStyles.value
             _pendingStyles.value = if (currentStyles.contains(style)) {
                 currentStyles - style
@@ -201,7 +197,6 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-
     private fun applySpanStyleToSelection(styleToApply: SpanStyle) {
         performUndoableAction {
             val focusedId = _uiState.value.focusedBlockId ?: return@performUndoableAction
@@ -209,8 +204,6 @@ class NoteViewModel : ViewModel() {
 
             val selection = block.value.selection
             if (selection.collapsed) {
-                // [MỚI] Nếu không có vùng chọn, không làm gì cả
-                // Chức năng pending style được xử lý bởi toggleStyle()
                 return@performUndoableAction
             }
 
@@ -254,19 +247,179 @@ class NoteViewModel : ViewModel() {
             val insertionPoint = if (focusedIndex != -1) focusedIndex + 1 else state.content.size
 
             state.content.add(insertionPoint, newBlock)
-            if (newBlock !is SeparatorBlock) {
+            if (newBlock !is SeparatorBlock && newBlock !is AudioBlock) {
                 val nextTextBlock = TextBlock()
                 state.content.add(insertionPoint + 1, nextTextBlock)
                 state.focusedBlockId = nextTextBlock.id
+            } else if (newBlock is AudioBlock) {
+                state.focusedBlockId = newBlock.id
             }
             state.selectedImageId = null
         }
     }
 
     fun addImageAtCursor(uri: Uri) = addBlockAtCursor(ImageBlock(uri = uri))
+
+    // [CẬP NHẬT] Bắt đầu ghi âm mới
+    fun startNewAudioRecording(context: Context) {
+        if (_uiState.value.isRecordingActive) {
+            return // Bỏ qua nếu đang ghi âm
+        }
+
+        val outputFile = File(context.cacheDir, "audio_${System.currentTimeMillis()}.mp3")
+        currentRecordingFilePath = outputFile.absolutePath
+
+        // Tạo một khối âm thanh tạm thời, chưa thêm vào nội dung chính
+        val tempAudioBlock = AudioBlock(
+            uri = Uri.fromFile(outputFile),
+            initialIsRecording = true,
+            initialFilePath = outputFile.absolutePath
+        )
+
+        // Cập nhật trạng thái để hiển thị UI ghi âm
+        _uiState.update { currentState ->
+            currentState.deepCopy().apply {
+                this.currentRecordingAudioBlock = tempAudioBlock
+                this.isRecordingActive = true
+                this.isTextFormatToolbarVisible = false
+            }
+        }
+        startRecordingInternal(currentRecordingFilePath!!, context)
+    }
+
+    private fun startRecordingInternal(filePath: String, context: Context) {
+        val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            MediaRecorder(context)
+        } else {
+            @Suppress("DEPRECATION")
+            MediaRecorder()
+        }
+        mediaRecorder = recorder.apply {
+            setAudioSource(MediaRecorder.AudioSource.MIC)
+            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            setOutputFile(filePath)
+            try {
+                prepare()
+                start()
+                recordingJob = viewModelScope.launch {
+                    val startTime = System.currentTimeMillis()
+                    while (_uiState.value.isRecordingActive) {
+                        val elapsedMillis = System.currentTimeMillis() - startTime
+                        // Cập nhật thời gian trên khối tạm thời
+                        _uiState.value.currentRecordingAudioBlock?.recordingTimeMillis = elapsedMillis
+                        _uiState.value.currentRecordingAudioBlock?.duration = formatDuration(elapsedMillis)
+                        delay(1000)
+                    }
+                }
+                Log.d("AudioRecording", "Recording started: $filePath")
+            } catch (e: IOException) {
+                Log.e("AudioRecording", "Recording failed: ${e.message}")
+                cancelRecording() // Hủy nếu không thể bắt đầu
+            }
+        }
+    }
+
+    // [CẬP NHẬT] Lưu bản ghi âm
+    fun saveRecordedAudio() {
+        // Không lưu các bản ghi quá ngắn (ví dụ: dưới 1 giây)
+        val recordedMillis = _uiState.value.currentRecordingAudioBlock?.recordingTimeMillis ?: 0L
+        if (recordedMillis < 1000) {
+            cancelRecording()
+            return
+        }
+
+        // Dừng quá trình ghi
+        recordingJob?.cancel()
+        recordingJob = null
+
+        val blockToSave = _uiState.value.currentRecordingAudioBlock
+        val path = currentRecordingFilePath
+
+        try {
+            mediaRecorder?.stop()
+            Log.d("AudioRecording", "Recording stopped for saving: $path")
+        } catch (e: Exception) {
+            Log.e("AudioRecording", "Error stopping recorder, cancelling.", e)
+            path?.let { File(it).delete() } // Xóa file tạm nếu dừng lỗi
+            resetRecordingState() // Đặt lại trạng thái
+            return
+        } finally {
+            releaseRecorder()
+        }
+
+        // Hoàn thiện khối âm thanh và thêm vào ghi chú
+        if (blockToSave != null && path != null) {
+            val finalDuration = getFileDuration(path)
+            blockToSave.duration = finalDuration
+            blockToSave.isRecording = false
+
+            // Thêm khối đã hoàn tất vào nội dung (hành động này có thể hoàn tác)
+            addBlockAtCursor(blockToSave)
+        }
+
+        // Đặt lại trạng thái ghi âm
+        resetRecordingState()
+    }
+
+    // [CẬP NHẬT] Hủy ghi âm
+    fun cancelRecording() {
+        recordingJob?.cancel()
+        recordingJob = null
+
+        try {
+            mediaRecorder?.stop()
+        } catch (e: Exception) {
+            Log.w("AudioRecording", "Exception on stopping recorder during cancellation: ${e.message}")
+        }
+        releaseRecorder()
+
+        // Xóa tệp âm thanh tạm thời
+        currentRecordingFilePath?.let { File(it).delete() }
+
+        // Đặt lại trạng thái mà không thêm bất cứ thứ gì vào ghi chú
+        resetRecordingState()
+        Log.d("AudioRecording", "Recording cancelled.")
+    }
+
+    // Hàm tiện ích để đặt lại trạng thái ghi âm
+    private fun resetRecordingState() {
+        _uiState.update {
+            it.deepCopy().apply {
+                isRecordingActive = false
+                currentRecordingAudioBlock = null
+            }
+        }
+        currentRecordingFilePath = null
+    }
+
+    private fun getFileDuration(path: String?): String {
+        if (path == null) return "00:00"
+        val file = File(path)
+        if (!file.exists() || file.length() == 0L) {
+            return "00:00"
+        }
+
+        val player = MediaPlayer()
+        return try {
+            player.setDataSource(file.absolutePath)
+            player.prepare()
+            val durationMillis = player.duration.toLong()
+            formatDuration(durationMillis)
+        } catch (e: Exception) {
+            Log.e("AudioDuration", "Could not get duration for $path", e)
+            "00:00"
+        } finally {
+            player.release()
+        }
+    }
+
+    fun isAnyAudioRecording(): Boolean {
+        return _uiState.value.isRecordingActive
+    }
+
     fun addCheckbox() = addBlockAtCursor(CheckboxBlock())
     fun addSeparator() = addBlockAtCursor(SeparatorBlock())
-    fun addAudioBlock() = addBlockAtCursor(AudioBlock())
     fun addToggleSwitch() = addBlockAtCursor(ToggleSwitchBlock())
     fun addAccordion() = addBlockAtCursor(AccordionBlock())
     fun addRadioGroup() = addBlockAtCursor(RadioGroupBlock())
@@ -274,11 +427,21 @@ class NoteViewModel : ViewModel() {
     fun onImageClick(imageId: String) {
         val state = _uiState.value
         state.selectedImageId = if (state.selectedImageId == imageId) null else imageId
-        setFocus(null) // Bỏ focus khỏi text block
+        setFocus(null)
     }
 
     fun deleteBlock(blockId: String) {
         performUndoableAction {
+            val blockToDelete = _uiState.value.content.find { it.id == blockId }
+            if (blockToDelete is AudioBlock) {
+                if (currentPlayingAudioBlockId == blockId) {
+                    stopPlaying()
+                }
+                if (blockToDelete.isRecording && _uiState.value.currentRecordingAudioBlock?.id == blockId) {
+                    cancelRecording()
+                }
+                blockToDelete.filePath?.let { File(it).delete() }
+            }
             _uiState.value.content.removeAll { it.id == blockId }
             if (_uiState.value.selectedImageId == blockId) {
                 _uiState.value.selectedImageId = null
@@ -304,7 +467,6 @@ class NoteViewModel : ViewModel() {
         if (state.focusedBlockId != blockId) {
             state.focusedBlockId = blockId
             state.selectedImageId = null
-            // [MỚI] Khi focus thay đổi, xóa các style đang chờ.
             _pendingStyles.value = emptySet()
         }
     }
@@ -339,5 +501,74 @@ class NoteViewModel : ViewModel() {
             commitActionForUndo()
             Log.d("NoteEditorDebug", "Note Saved: Title='${_uiState.value.title}', Content size=${_uiState.value.content.size}")
         }
+    }
+
+    fun togglePlaying(audioBlockId: String, filePath: String?) {
+        if (filePath == null) return
+
+        val audioBlock = _uiState.value.content.find { it.id == audioBlockId } as? AudioBlock
+        if (audioBlock == null) return
+
+        if (audioBlock.isPlaying) {
+            stopPlaying()
+        } else {
+            stopPlaying()
+
+            mediaPlayer = MediaPlayer().apply {
+                try {
+                    setDataSource(filePath)
+                    prepare()
+                    start()
+                    currentPlayingAudioBlockId = audioBlockId
+                    audioBlock.isPlaying = true
+                    Log.d("AudioPlaying", "Playback started: $filePath")
+
+                    setOnCompletionListener {
+                        audioBlock.isPlaying = false
+                        releasePlayer()
+                    }
+                } catch (e: IOException) {
+                    Log.e("AudioPlaying", "Audio playback failed: ${e.message}")
+                    audioBlock.isPlaying = false
+                    releasePlayer()
+                }
+            }
+        }
+    }
+
+    fun stopPlaying() {
+        mediaPlayer?.apply {
+            if (isPlaying) {
+                stop()
+            }
+            releasePlayer()
+            currentPlayingAudioBlockId?.let { id ->
+                (_uiState.value.content.find { it.id == id } as? AudioBlock)?.isPlaying = false
+            }
+            currentPlayingAudioBlockId = null
+        }
+    }
+
+    private fun releasePlayer() {
+        mediaPlayer?.release()
+        mediaPlayer = null
+    }
+
+    private fun releaseRecorder() {
+        mediaRecorder?.release()
+        mediaRecorder = null
+    }
+
+    private fun formatDuration(millis: Long): String {
+        val minutes = TimeUnit.MILLISECONDS.toMinutes(millis)
+        val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) - TimeUnit.MINUTES.toSeconds(minutes)
+        return String.format("%02d:%02d", minutes, seconds)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        releaseRecorder()
+        releasePlayer()
+        recordingJob?.cancel()
     }
 }

@@ -8,7 +8,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
-import com.example.noteeditor.composables.Style
+import com.example.noteeditor.composables.Style // Import Style enum
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -34,7 +34,6 @@ class TextBlock(
     }
 }
 
-// Other content block classes remain the same
 @Stable
 class ImageBlock(val uri: Uri, initialDescription: String = "", initialIsResized: Boolean = false) : ContentBlock() {
     var description by mutableStateOf(initialDescription)
@@ -50,9 +49,27 @@ class CheckboxBlock(initialValue: TextFieldValue = TextFieldValue(""), initialIs
 }
 
 @Stable
-class AudioBlock(val uri: Uri? = null, initialDuration: String = "00:00") : ContentBlock() {
+class AudioBlock(
+    val uri: Uri? = null,
+    initialDuration: String = "00:00",
+    initialIsPlaying: Boolean = false,
+    initialIsRecording: Boolean = false,
+    initialFilePath: String? = null,
+    initialRecordingTimeMillis: Long = 0L,
+    initialAmplitudes: List<Int> = emptyList() // [MỚI] Thêm tham số cho biên độ
+) : ContentBlock() {
     var duration by mutableStateOf(initialDuration)
-    override fun deepCopy(): ContentBlock = AudioBlock(uri, duration)
+    var isPlaying by mutableStateOf(initialIsPlaying)
+    var isRecording by mutableStateOf(initialIsRecording)
+    var filePath by mutableStateOf(initialFilePath)
+    var recordingTimeMillis by mutableStateOf(initialRecordingTimeMillis)
+    // [MỚI] Danh sách lưu trữ biên độ sóng âm
+    val amplitudes: SnapshotStateList<Int> = initialAmplitudes.toMutableStateList()
+
+    override fun deepCopy(): ContentBlock {
+        // [CẬP NHẬT] Sao chép cả danh sách biên độ
+        return AudioBlock(uri, duration, isPlaying, isRecording, filePath, recordingTimeMillis, amplitudes)
+    }
 }
 
 @Stable
@@ -88,10 +105,11 @@ class NoteState {
     var selectedImageId by mutableStateOf<String?>(null)
     var focusedBlockId by mutableStateOf<String?>(null)
     var isTextFormatToolbarVisible by mutableStateOf(false)
-    // [NEW] To track active styles for typing new text.
     var activeStyles by mutableStateOf<Set<Style>>(emptySet())
-    val date: String = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()).format(Date())
+    val date: String = SimpleDateFormat("EEEE, MMMM d,yyyy", Locale.getDefault()).format(Date())
     var category by mutableStateOf("Chưa phân loại")
+    var isRecordingActive by mutableStateOf(false)
+    var currentRecordingAudioBlock: AudioBlock? by mutableStateOf(null)
 
     fun deepCopy(): NoteState {
         val new = NoteState()
@@ -103,8 +121,10 @@ class NoteState {
         new.focusedBlockId = this.focusedBlockId
         new.isTextFormatToolbarVisible = this.isTextFormatToolbarVisible
         new.category = this.category
-        // [NEW] Copy the active styles
         new.activeStyles = this.activeStyles
+        new.isRecordingActive = this.isRecordingActive
+        // deepCopy của AudioBlock sẽ tự động sao chép amplitudes
+        new.currentRecordingAudioBlock = this.currentRecordingAudioBlock?.deepCopy() as? AudioBlock
         return new
     }
 }

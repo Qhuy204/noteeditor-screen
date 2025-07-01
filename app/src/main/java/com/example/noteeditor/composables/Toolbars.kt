@@ -1,3 +1,4 @@
+// File: Toolbars.kt
 package com.example.noteeditor.composables
 
 import androidx.compose.animation.*
@@ -23,11 +24,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.noteeditor.composables.glassmorphism
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,7 +54,13 @@ fun NoteEditorTopAppBar(
             }
             TextButton(onClick = onSaveClick) { Text("Lưu") }
         },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = Color.Transparent,
+            scrolledContainerColor = Color.Transparent,
+            navigationIconContentColor = LocalContentColor.current,
+            actionIconContentColor = LocalContentColor.current,
+            titleContentColor = LocalContentColor.current
+        )
     )
 }
 
@@ -60,78 +69,176 @@ fun NoteEditorTopAppBar(
 fun TransformingBottomToolbar(
     modifier: Modifier = Modifier,
     isKeyboardVisible: Boolean,
+    // --- Text Formatting ---
     isFormattingMode: Boolean,
-    activeStyles: Set<Style>, // [NEW] Receive the set of active styles
+    activeStyles: Set<Style>,
     onToggleFormattingMode: () -> Unit,
+    onStyleChange: (Style) -> Unit,
+    onTextAlignChange: (TextAlign) -> Unit,
+    onListStyleChange: () -> Unit,
+    onFontSizeChange: (TextUnit) -> Unit,
+    onTextColorChange: (Color) -> Unit,
+    onTextBgColorChange: (Color) -> Unit,
+    // --- Main Actions ---
     onAddImageClick: () -> Unit,
     onAddCheckboxClick: () -> Unit,
     onAddAudioClick: () -> Unit,
     onAddMoreClick: (Boolean) -> Unit,
-    onStyleChange: (Style) -> Unit,
-    onTextAlignChange: (TextAlign) -> Unit,
-    onListStyleChange: () -> Unit,
     onAddSeparator: () -> Unit,
-    onFontSizeChange: (TextUnit) -> Unit,
-    onTextColorChange: (Color) -> Unit,
-    onTextBgColorChange: (Color) -> Unit
+    // --- Recording ---
+    isRecordingActive: Boolean,
+    recordingDuration: String,
+    onSaveRecording: () -> Unit,
+    onCancelRecording: () -> Unit
 ) {
     val animSpec = tween<Dp>(durationMillis = 200)
-    val horizontalPadding by animateDpAsState(targetValue = if (isKeyboardVisible) 0.dp else 24.dp, animationSpec = animSpec, label = "HorizontalPadding")
-    val cornerRadius by animateDpAsState(targetValue = if (isKeyboardVisible) 0.dp else 32.dp, animationSpec = animSpec, label = "CornerRadius")
-    val surfaceBottomPadding by animateDpAsState(targetValue = if (isKeyboardVisible) 0.dp else 24.dp, animationSpec = animSpec, label = "SurfaceBottomPadding")
+    // Thanh công cụ sẽ phẳng (không có bo góc/padding) khi bàn phím hiện.
+    // Giao diện ghi âm sẽ có cùng hình dạng nên không ảnh hưởng đến logic này.
+    val isFlat = isKeyboardVisible
+    val horizontalPadding by animateDpAsState(targetValue = if (isFlat) 0.dp else 16.dp, animationSpec = animSpec, label = "HorizontalPadding")
+    val cornerRadius by animateDpAsState(targetValue = if (isFlat) 0.dp else 32.dp, animationSpec = animSpec, label = "CornerRadius")
+    val surfaceBottomPadding by animateDpAsState(targetValue = if (isFlat) 0.dp else 16.dp, animationSpec = animSpec, label = "SurfaceBottomPadding")
 
+    // Box này xử lý vị trí tổng thể và padding cho bàn phím (IME)
     Box(
         modifier = modifier
             .fillMaxWidth()
             .imePadding()
     ) {
-        Surface(
+        // Box bên trong này thiết lập khu vực layout cho các thanh công cụ.
+        // Nó được căn chỉnh xuống dưới và có padding động.
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(horizontal = horizontalPadding)
-                .padding(bottom = surfaceBottomPadding),
-            shape = RoundedCornerShape(cornerRadius),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 8.dp,
+                .padding(bottom = surfaceBottomPadding)
+                .height(56.dp), // Tất cả các thanh công cụ có chiều cao nhất quán
+            contentAlignment = Alignment.Center
         ) {
-            AnimatedContent(
-                targetState = isFormattingMode,
-                label = "ToolbarStateAnimation",
-                transitionSpec = {
-                    (slideInHorizontally(animationSpec = tween(250)) { w -> w } + fadeIn(tween(250)))
-                        .togetherWith(slideOutHorizontally(animationSpec = tween(250)) { w -> -w } + fadeOut(tween(250)))
-                        .using(SizeTransform(clip = false))
-                }
-            ) { isFormatting ->
-                if (isFormatting) {
-                    FormattingToolbarContent(
-                        activeStyles = activeStyles, // [NEW] Pass down active styles
-                        onStyleChange = onStyleChange,
-                        onTextAlignChange = onTextAlignChange,
-                        onListStyleChange = onListStyleChange,
-                        onAddSeparator = onAddSeparator,
-                        onClose = onToggleFormattingMode,
-                        onFontSizeChange = onFontSizeChange,
-                        onTextColorChange = onTextColorChange,
-                        onTextBgColorChange = onTextBgColorChange
+            // THANH CÔNG CỤ CƠ SỞ (Chính hoặc Định dạng)
+            // Luôn hiện diện nhưng có thể bị che bởi thanh ghi âm.
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                shape = RoundedCornerShape(cornerRadius),
+                color = Color.Transparent,
+                shadowElevation = 0.dp,
+            ) {
+                val glassModifier = Modifier
+                    .fillMaxSize()
+                    .glassmorphism(
+                        cornerRadius = cornerRadius,
+                        glassColor = MaterialTheme.colorScheme.surfaceVariant,
+                        transparency = 0.5f
                     )
-                } else {
-                    MainToolbarContent(
-                        onAddImageClick = onAddImageClick,
-                        onAddCheckboxClick = onAddCheckboxClick,
-                        onAddAudioClick = onAddAudioClick,
-                        onToggleFormatting = onToggleFormattingMode,
-                        onAddMoreClick = { onAddMoreClick(true) }
-                    )
+
+                AnimatedContent(
+                    targetState = isFormattingMode,
+                    label = "ToolbarStateAnimation",
+                    transitionSpec = {
+                        (slideInHorizontally(animationSpec = tween(250)) { w -> w } + fadeIn(tween(250)))
+                            .togetherWith(slideOutHorizontally(animationSpec = tween(250)) { w -> -w } + fadeOut(tween(250)))
+                            .using(SizeTransform(clip = false))
+                    }
+                ) { isFormatting ->
+                    if (isFormatting) {
+                        FormattingToolbarContent(
+                            modifier = glassModifier,
+                            activeStyles = activeStyles,
+                            onStyleChange = onStyleChange,
+                            onTextAlignChange = onTextAlignChange,
+                            onListStyleChange = onListStyleChange,
+                            onAddSeparator = onAddSeparator,
+                            onClose = onToggleFormattingMode,
+                            onFontSizeChange = onFontSizeChange,
+                            onTextColorChange = onTextColorChange,
+                            onTextBgColorChange = onTextBgColorChange
+                        )
+                    } else {
+                        MainToolbarContent(
+                            modifier = glassModifier,
+                            onAddImageClick = onAddImageClick,
+                            onAddCheckboxClick = onAddCheckboxClick,
+                            onAddAudioClick = onAddAudioClick,
+                            onToggleFormatting = onToggleFormattingMode,
+                            onAddMoreClick = { onAddMoreClick(true) }
+                        )
+                    }
                 }
+            }
+
+            // LỚP PHỦ GIAO DIỆN GHI ÂM
+            AnimatedVisibility(
+                visible = isRecordingActive,
+                enter = fadeIn(animationSpec = tween(200)),
+                exit = fadeOut(animationSpec = tween(200))
+            ) {
+                InlineRecordingBar(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(cornerRadius)) // Bo góc khớp với thanh công cụ bên dưới
+                        .glassmorphism( // Áp dụng hiệu ứng tương tự để che phủ hoàn hảo
+                            cornerRadius = cornerRadius,
+                            glassColor = MaterialTheme.colorScheme.surfaceVariant,
+                            transparency = 1f
+                        ),
+                    duration = recordingDuration,
+                    onSave = onSaveRecording,
+                    onCancel = onCancelRecording
+                )
             }
         }
     }
 }
 
+@Composable
+private fun InlineRecordingBar(
+    modifier: Modifier = Modifier,
+    duration: String,
+    onSave: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val redColor = Color(0xFFE53935)
+
+    Row(
+        modifier = modifier
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ToolbarIconButton(
+            icon = Icons.Default.Close,
+            contentDescription = "Hủy Ghi Âm",
+            onClick = onCancel
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.Mic,
+                contentDescription = "Đang ghi âm",
+                tint = redColor
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = duration,
+                color = redColor,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+        }
+        Button(
+            onClick = onSave,
+            colors = ButtonDefaults.buttonColors(containerColor = redColor),
+            shape = CircleShape,
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(Icons.Default.Stop, contentDescription = "Dừng và Lưu", tint = Color.White)
+        }
+    }
+}
 
 @Composable
 private fun MainToolbarContent(
+    modifier: Modifier = Modifier,
     onToggleFormatting: () -> Unit,
     onAddImageClick: () -> Unit,
     onAddCheckboxClick: () -> Unit,
@@ -139,9 +246,7 @@ private fun MainToolbarContent(
     onAddMoreClick: () -> Unit
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp),
+        modifier = modifier,
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -155,7 +260,8 @@ private fun MainToolbarContent(
 
 @Composable
 private fun FormattingToolbarContent(
-    activeStyles: Set<Style>, // [NEW] Receive active styles
+    modifier: Modifier = Modifier,
+    activeStyles: Set<Style>,
     onClose: () -> Unit,
     onStyleChange: (Style) -> Unit,
     onTextAlignChange: (TextAlign) -> Unit,
@@ -165,44 +271,30 @@ private fun FormattingToolbarContent(
     onTextColorChange: (Color) -> Unit,
     onTextBgColorChange: (Color) -> Unit
 ) {
-    val scrollState = rememberScrollState()
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .horizontalScroll(scrollState)
+        modifier = modifier
+            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         val rotation by animateFloatAsState(targetValue = 360f, animationSpec = tween(400), label = "CloseIconRotation")
         ToolbarIconButton(icon = Icons.Default.Close, contentDescription = "Close Formatting", onClick = onClose, modifier = Modifier.rotate(rotation))
-
         VerticalDivider()
-
-        // [NEW] Check if style is active and pass it to the button
         ToolbarIconButton(icon = Icons.Default.FormatBold, "Bold", onClick = { onStyleChange(Style.BOLD) }, isToggled = activeStyles.contains(Style.BOLD))
         ToolbarIconButton(icon = Icons.Default.FormatItalic, "Italic", onClick = { onStyleChange(Style.ITALIC) }, isToggled = activeStyles.contains(Style.ITALIC))
         ToolbarIconButton(icon = Icons.Default.FormatUnderlined, "Underline", onClick = { onStyleChange(Style.UNDERLINE) }, isToggled = activeStyles.contains(Style.UNDERLINE))
         ToolbarIconButton(icon = Icons.Default.FormatStrikethrough, "Strikethrough", onClick = { onStyleChange(Style.STRIKETHROUGH) }, isToggled = activeStyles.contains(Style.STRIKETHROUGH))
-
         VerticalDivider()
-
         FontSizeSelector(onFontSizeChange = onFontSizeChange)
-
         VerticalDivider()
-
         ColorSelector(icon = Icons.Default.FormatColorText, onColorSelected = onTextColorChange)
         ColorSelector(icon = Icons.Default.FormatColorFill, onColorSelected = onTextBgColorChange)
-
         VerticalDivider()
-
         ToolbarIconButton(icon = Icons.AutoMirrored.Filled.FormatAlignLeft, "Align Left", onClick = { onTextAlignChange(TextAlign.Start) })
         ToolbarIconButton(icon = Icons.Default.FormatAlignCenter, "Align Center", onClick = { onTextAlignChange(TextAlign.Center) })
         ToolbarIconButton(icon = Icons.AutoMirrored.Filled.FormatAlignRight, "Align Right", onClick = { onTextAlignChange(TextAlign.End) })
-
         VerticalDivider()
-
         ToolbarIconButton(icon = Icons.Default.FormatListBulleted, "Bulleted List", onClick = onListStyleChange)
         ToolbarIconButton(icon = Icons.Default.HorizontalRule, "Separator", onClick = onAddSeparator)
     }
@@ -264,19 +356,14 @@ private fun ColorSelector(icon: ImageVector, onColorSelected: (Color) -> Unit) {
     }
 }
 
-
-/**
- * [REWORKED] ToolbarIconButton now accepts an isToggled parameter to change its color.
- */
 @Composable
 fun ToolbarIconButton(
     icon: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    isToggled: Boolean = false // [NEW]
+    isToggled: Boolean = false
 ) {
-    // [NEW] Change tint color if the button is toggled
     val tint = if (isToggled) Color(0xFFFFC700) else LocalContentColor.current
     IconButton(onClick = onClick, modifier = modifier) {
         Icon(icon, contentDescription, tint = tint)
