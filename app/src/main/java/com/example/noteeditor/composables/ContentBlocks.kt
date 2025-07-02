@@ -31,9 +31,13 @@ import com.example.noteeditor.* // Import all classes from noteeditor package
 import java.util.concurrent.TimeUnit // Import TimeUnit for duration formatting
 
 /**
- * [REWORK] The Composable now uses the block's paragraphStyle for the overall text field
- * style, and relies on the AnnotatedString within the TextFieldValue to render
- * character-specific styles (bold, color, etc.).
+ * [ĐÃ SỬA LẦN 2] Cấu trúc lại Composable để căn lề hoạt động chính xác.
+ *
+ * Vấn đề trước đây là vùng soạn thảo bên trong (`innerTextField`) không được cấp đủ chiều rộng.
+ * Giải pháp này đặt toàn bộ layout (bao gồm dấu đầu dòng và vùng nhập liệu) vào trong `decorationBox`.
+ * `BasicTextField` được set `fillMaxWidth()` để đảm bảo `decorationBox` có không gian để phân phối.
+ * Bên trong `decorationBox`, một `Row` được sử dụng. Vùng nhập liệu (`innerTextField`) được đặt trong một `Box`
+ * với `Modifier.weight(1f)`, đảm bảo nó chiếm hết không gian còn lại, cho phép `textAlign` hoạt động đúng.
  */
 @Composable
 fun TextBlockComposable(
@@ -41,35 +45,51 @@ fun TextBlockComposable(
     onValueChange: (TextFieldValue) -> Unit,
     onFocusChange: (FocusState) -> Unit
 ) {
-    val baseTextStyle = ComposeTextStyle.Default.merge(block.paragraphStyle)
+    // Hợp nhất ParagraphStyle (chứa thông tin căn lề) vào TextStyle cơ sở.
+    val textStyle = ComposeTextStyle.Default.merge(block.paragraphStyle)
 
     BasicTextField(
         value = block.value,
         onValueChange = onValueChange,
         modifier = Modifier
-            .fillMaxWidth()
-            .onFocusChanged(onFocusChange)
-            .padding(horizontal = 4.dp, vertical = 2.dp),
-        textStyle = baseTextStyle,
+            .fillMaxWidth() // Đảm bảo toàn bộ composable chiếm đầy chiều rộng
+            .onFocusChanged(onFocusChange),
+        textStyle = textStyle,
         decorationBox = { innerTextField ->
-            Row(verticalAlignment = Alignment.Top) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
+            ) {
+                // Hiển thị dấu đầu dòng nếu đây là một mục danh sách
                 if (block.isListItem) {
                     Text(
                         text = "• ",
-                        modifier = Modifier.padding(end = 8.dp),
-                        style = baseTextStyle
+                        style = textStyle,
+                        modifier = Modifier.padding(end = 8.dp)
                     )
                 }
-                Box(modifier = Modifier.weight(1f)) {
+
+                // Box này sẽ chiếm hết không gian còn lại trong Row
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    // Hiển thị placeholder nếu không có nội dung
                     if (block.value.annotatedString.isEmpty()) {
-                        Text("Gõ nội dung...", color = Color.Gray, style = baseTextStyle)
+                        Text(
+                            "Nội dung...",
+                            color = Color.Gray,
+                            // Placeholder cũng phải tuân theo kiểu căn lề
+                            style = textStyle,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
-                    innerTextField()
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        innerTextField()
+                    }
                 }
             }
         }
     )
 }
+
 
 @Composable
 fun ImageBlockComposable(
