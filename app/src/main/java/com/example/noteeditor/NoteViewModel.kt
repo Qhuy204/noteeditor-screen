@@ -54,79 +54,160 @@ class NoteViewModel : ViewModel() {
     private var currentPlayingAudioBlockId: String? = null
     private var recordingJob: Job? = null
 
-    private fun saveForUndo() {
+    // Giới hạn số lượng trạng thái undo/redo
+    private val MAX_STACK_SIZE = 50
+
+    init {
+        // Đẩy trạng thái khởi tạo vào undo stack
         undoStack.add(_uiState.value.deepCopy())
-        redoStack.clear()
-        if (undoStack.size > 50) {
-            undoStack.removeAt(0)
-        }
-        _canUndo.value = true
-        _canRedo.value = false
+        updateUndoRedoButtons()
     }
 
+    // Cập nhật trạng thái của các nút Undo/Redo
+    private fun updateUndoRedoButtons() {
+        _canUndo.value = undoStack.size > 1
+        _canRedo.value = redoStack.size > 0
+        Log.d("UndoRedoButtons", "canUndo: ${_canUndo.value}, canRedo: ${_canRedo.value}")
+    }
+
+    // Thêm trạng thái vào undo stack, giới hạn kích thước
+    private fun addToUndoStack(state: NoteState) {
+        undoStack.add(state)
+        if (undoStack.size > MAX_STACK_SIZE) {
+            undoStack.removeAt(0) // Xóa phần tử cũ nhất
+        }
+        Log.d("UndoRedoStack", "Added to undoStack. Size: ${undoStack.size}")
+    }
+
+    // Thêm trạng thái vào redo stack, giới hạn kích thước
+    private fun addToRedoStack(state: NoteState) {
+        redoStack.add(state)
+        if (redoStack.size > MAX_STACK_SIZE) {
+            redoStack.removeAt(0) // Xóa phần tử cũ nhất
+        }
+        Log.d("UndoRedoStack", "Added to redoStack. Size: ${redoStack.size}")
+    }
+
+    // Lưu trạng thái hiện tại vào undo stack nếu có sự khác biệt đáng kể
+    private fun saveStateForUndoInternal(stateToSave: NoteState) {
+        val lastSavedState = undoStack.lastOrNull()
+
+        // Chỉ thêm vào stack nếu trạng thái hiện tại khác biệt đáng kể so với trạng thái cuối cùng đã lưu
+        if (lastSavedState == null) {
+            Log.d("UndoRedo", "Saving initial state (lastSavedState is null).")
+            addToUndoStack(stateToSave)
+            redoStack.clear() // Xóa redo stack khi có thao tác mới
+        } else if (!lastSavedState.isContentEqual(stateToSave)) {
+            Log.d("UndoRedo", "Content diff detected. Saving new state.")
+            addToUndoStack(stateToSave)
+            redoStack.clear() // Xóa redo stack khi có thao tác mới (không phải từ undo/redo)
+        } else {
+            Log.d("UndoRedo", "State is content equal, skipping save.")
+        }
+        updateUndoRedoButtons()
+    }
+
+    // Hàm này được gọi khi một khối mất tiêu điểm hoặc một hành động hoàn tất
     fun commitActionForUndo() {
-        val currentState = _uiState.value
-        if (undoStack.isEmpty() || undoStack.last().content.size != currentState.content.size || undoStack.last().title != currentState.title) {
-            Log.d("NoteEditorDebug", "Committing action for undo.")
-            saveForUndo()
+        val currentState = _uiState.value.deepCopy()
+        val lastSavedState = undoStack.lastOrNull()
+        if (lastSavedState == null || !lastSavedState.isContentEqual(currentState)) {
+            saveStateForUndoInternal(currentState)
+        } else {
+            Log.d("UndoRedo", "Commit action: State is equal, no save needed.")
         }
     }
 
+    // Thực hiện thao tác Undo
     fun undo() {
-        if (undoStack.isNotEmpty()) {
-            redoStack.add(_uiState.value.deepCopy())
-            _uiState.value = undoStack.removeAt(undoStack.lastIndex)
-            _canUndo.value = undoStack.isNotEmpty()
-            _canRedo.value = true
+        // Chỉ undo nếu có ít nhất 2 trạng thái (trạng thái hiện tại và trạng thái trước đó)
+        if (undoStack.size > 1) {
+            // Lưu trạng thái hiện tại vào redo stack trước khi undo
+            val currentState = _uiState.value.deepCopy()
+            addToRedoStack(currentState)
+
+            // Xóa trạng thái hiện tại khỏi undo stack
+            undoStack.removeAt(undoStack.lastIndex)
+
+            // Cập nhật UI về trạng thái trước đó
+            _uiState.value = undoStack.last().deepCopy()
+
+            updateUndoRedoButtons()
+            Log.d("UndoRedo", "Undo performed. UndoStack size: ${undoStack.size}, RedoStack size: ${redoStack.size}")
+        } else {
+            Log.d("UndoRedo", "Cannot undo. UndoStack size: ${undoStack.size}")
         }
     }
 
+    // Thực hiện thao tác Redo
     fun redo() {
         if (redoStack.isNotEmpty()) {
-            undoStack.add(_uiState.value.deepCopy())
-            _uiState.value = redoStack.removeAt(redoStack.lastIndex)
-            _canUndo.value = true
-            _canRedo.value = redoStack.isNotEmpty()
+            // Lưu trạng thái hiện tại vào undo stack trước khi redo
+            val currentState = _uiState.value.deepCopy()
+            addToUndoStack(currentState)
+
+            // Lấy trạng thái tiếp theo từ redo stack
+            val nextState = redoStack.removeAt(redoStack.lastIndex)
+            _uiState.value = nextState
+
+            updateUndoRedoButtons()
+            Log.d("UndoRedo", "Redo performed. UndoStack size: ${undoStack.size}, RedoStack size: ${redoStack.size}")
+        } else {
+            Log.d("UndoRedo", "Cannot redo. RedoStack is empty.")
         }
     }
 
+    // Hàm hỗ trợ để thực hiện một hành động có thể hoàn tác
     private fun performUndoableAction(action: () -> Unit) {
-        saveForUndo()
+        // Lưu trạng thái *trước khi* hành động được thực hiện
+        saveStateForUndoInternal(_uiState.value.deepCopy())
         action()
+        // Sau khi hành động hoàn tất, cập nhật lại trạng thái nút
+        updateUndoRedoButtons()
     }
 
+    // Đảm bảo onTitleChange cũng gọi saveStateForUndoInternal
     fun onTitleChange(newTitle: String) {
-        _uiState.value.title = newTitle
+        // Chỉ lưu trạng thái nếu tiêu đề thực sự thay đổi
+        if (_uiState.value.title != newTitle) {
+            saveStateForUndoInternal(_uiState.value.deepCopy()) // Lưu trước khi thay đổi
+            _uiState.value.title = newTitle
+            updateUndoRedoButtons()
+        }
     }
 
+    // Xử lý thay đổi nội dung của một ContentBlock
     fun onContentBlockChange(blockId: String, newValue: TextFieldValue) {
         val block = _uiState.value.content.find { it.id == blockId }
         when (block) {
             is TextBlock -> {
                 val oldValue = block.value
-
-                if (oldValue.text == newValue.text) {
-                    block.value = oldValue.copy(
-                        selection = newValue.selection,
-                        composition = newValue.composition
-                    )
-                    if (_pendingStyles.value.isNotEmpty()) {
-                        _pendingStyles.value = emptySet()
-                    }
-                    return
+                // Lưu trạng thái nếu TextFieldValue đã thay đổi (bao gồm text, selection, span/paragraph styles)
+                if (oldValue != newValue) {
+                    Log.d("ContentChange", "TextBlock value changed. Saving state.")
+                    saveStateForUndoInternal(_uiState.value.deepCopy())
                 }
 
                 val builder = AnnotatedString.Builder(newValue.annotatedString)
 
+                // Re-apply existing styles to the new text range
+                // This ensures styles persist correctly when text is inserted/deleted
+                val textDiff = newValue.text.length - oldValue.text.length
                 oldValue.annotatedString.spanStyles.forEach {
-                    builder.addStyle(it.item, it.start, it.end)
+                    val adjustedStart = (it.start + textDiff).coerceAtLeast(0)
+                    val adjustedEnd = (it.end + textDiff).coerceAtLeast(0)
+                    // Only add style if the range is valid and not empty
+                    if (adjustedStart < adjustedEnd) {
+                        builder.addStyle(it.item, adjustedStart, adjustedEnd)
+                    }
                 }
 
                 val textAdded = newValue.text.length > oldValue.text.length
                 if (textAdded && _pendingStyles.value.isNotEmpty()) {
+                    // Apply pending styles to the newly typed text
                     val start = oldValue.selection.start
                     val end = newValue.selection.end
-                    if (start < end) {
+                    if (start < end) { // This condition is for the selected range where new text is inserted
                         val combinedStyle = createCombinedSpanStyle(_pendingStyles.value)
                         builder.addStyle(combinedStyle, start, end)
                     }
@@ -136,12 +217,25 @@ class NoteViewModel : ViewModel() {
                     annotatedString = builder.toAnnotatedString(),
                     selection = newValue.selection
                 )
+
+                // Clear pending styles only if they were actually applied or if text changed
+                if (textAdded || _pendingStyles.value.isNotEmpty()) {
+                    _pendingStyles.value = emptySet()
+                }
             }
-            is CheckboxBlock -> block.value = newValue
+            is CheckboxBlock -> {
+                // Kiểm tra nếu giá trị checkbox thực sự thay đổi
+                if (block.value != newValue || block.isChecked != _uiState.value.content.find { it.id == blockId }?.let { (it as? CheckboxBlock)?.isChecked } ?: false) {
+                    saveStateForUndoInternal(_uiState.value.deepCopy()) // Lưu trước khi thay đổi
+                    block.value = newValue
+                }
+            }
             else -> { /* Do nothing */ }
         }
+        updateUndoRedoButtons() // Cập nhật trạng thái nút sau mỗi thay đổi nội dung
     }
 
+    // Tạo SpanStyle kết hợp từ một tập hợp các Style
     private fun createCombinedSpanStyle(styles: Set<Style>): SpanStyle {
         var combined = SpanStyle()
         if (styles.contains(Style.BOLD)) combined = combined.merge(SpanStyle(fontWeight = FontWeight.Bold))
@@ -151,12 +245,13 @@ class NoteViewModel : ViewModel() {
         return combined
     }
 
+    // Bật/tắt một kiểu định dạng (Bold, Italic, Underline, Strikethrough)
     fun toggleStyle(style: Style) {
         val focusedId = _uiState.value.focusedBlockId ?: return
         val block = _uiState.value.content.find { it.id == focusedId } as? TextBlock ?: return
         val selection = block.value.selection
 
-        if (!selection.collapsed) {
+        if (!selection.collapsed) { // Nếu có văn bản được chọn
             performUndoableAction {
                 val builder = AnnotatedString.Builder(block.value.annotatedString)
                 val existingStyles = block.value.annotatedString.spanStyles.filter {
@@ -187,16 +282,19 @@ class NoteViewModel : ViewModel() {
                 builder.addStyle(newSpanStyle, selection.start, selection.end)
                 block.value = block.value.copy(annotatedString = builder.toAnnotatedString())
             }
-        } else {
+        } else { // Nếu không có văn bản được chọn (chỉ có con trỏ)
             val currentStyles = _pendingStyles.value
             _pendingStyles.value = if (currentStyles.contains(style)) {
                 currentStyles - style
             } else {
                 currentStyles + style
             }
+            // Không cần saveStateForUndoInternal ở đây, vì pendingStyles sẽ được áp dụng khi gõ hoặc khi mất focus
+            updateUndoRedoButtons() // Cập nhật trạng thái nút
         }
     }
 
+    // Áp dụng SpanStyle cho vùng chọn
     private fun applySpanStyleToSelection(styleToApply: SpanStyle) {
         performUndoableAction {
             val focusedId = _uiState.value.focusedBlockId ?: return@performUndoableAction
@@ -214,6 +312,7 @@ class NoteViewModel : ViewModel() {
         }
     }
 
+    // Đặt căn lề văn bản
     fun setTextAlign(textAlign: TextAlign) {
         performUndoableAction {
             val focusedId = _uiState.value.focusedBlockId ?: return@performUndoableAction
@@ -222,10 +321,14 @@ class NoteViewModel : ViewModel() {
         }
     }
 
+    // Đặt kích thước chữ
     fun setFontSize(size: TextUnit) = applySpanStyleToSelection(SpanStyle(fontSize = size))
+    // Đặt màu chữ
     fun setTextColor(color: Color) = applySpanStyleToSelection(SpanStyle(color = color))
+    // Đặt màu nền chữ
     fun setTextBackgroundColor(color: Color) = applySpanStyleToSelection(SpanStyle(background = color))
 
+    // Bật/tắt kiểu danh sách (bulleted list)
     fun toggleListStyle() {
         performUndoableAction {
             val focusedId = _uiState.value.focusedBlockId ?: return@performUndoableAction
@@ -234,12 +337,14 @@ class NoteViewModel : ViewModel() {
         }
     }
 
+    // Xử lý thay đổi trạng thái của Checkbox
     fun onCheckboxCheckedChange(blockId: String, isChecked: Boolean) {
         performUndoableAction {
             (_uiState.value.content.find { it.id == blockId } as? CheckboxBlock)?.isChecked = isChecked
         }
     }
 
+    // Thêm một khối mới tại vị trí con trỏ
     private fun addBlockAtCursor(newBlock: ContentBlock) {
         performUndoableAction {
             val state = _uiState.value
@@ -258,6 +363,7 @@ class NoteViewModel : ViewModel() {
         }
     }
 
+    // Thêm khối ảnh tại vị trí con trỏ
     fun addImageAtCursor(uri: Uri) = addBlockAtCursor(ImageBlock(uri = uri))
 
     // [CẬP NHẬT] Bắt đầu ghi âm mới
@@ -287,6 +393,7 @@ class NoteViewModel : ViewModel() {
         startRecordingInternal(currentRecordingFilePath!!, context)
     }
 
+    // Bắt đầu ghi âm nội bộ
     private fun startRecordingInternal(filePath: String, context: Context) {
         val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             MediaRecorder(context)
@@ -393,6 +500,7 @@ class NoteViewModel : ViewModel() {
         currentRecordingFilePath = null
     }
 
+    // Lấy thời lượng của tệp âm thanh
     private fun getFileDuration(path: String?): String {
         if (path == null) return "00:00"
         val file = File(path)
@@ -414,22 +522,30 @@ class NoteViewModel : ViewModel() {
         }
     }
 
+    // Kiểm tra xem có đang ghi âm không
     fun isAnyAudioRecording(): Boolean {
         return _uiState.value.isRecordingActive
     }
 
+    // Thêm khối Checkbox
     fun addCheckbox() = addBlockAtCursor(CheckboxBlock())
+    // Thêm khối Separator
     fun addSeparator() = addBlockAtCursor(SeparatorBlock())
+    // Thêm khối Toggle Switch
     fun addToggleSwitch() = addBlockAtCursor(ToggleSwitchBlock())
+    // Thêm khối Accordion
     fun addAccordion() = addBlockAtCursor(AccordionBlock())
+    // Thêm khối Radio Group
     fun addRadioGroup() = addBlockAtCursor(RadioGroupBlock())
 
+    // Xử lý click vào ảnh
     fun onImageClick(imageId: String) {
         val state = _uiState.value
         state.selectedImageId = if (state.selectedImageId == imageId) null else imageId
         setFocus(null)
     }
 
+    // Xóa một khối
     fun deleteBlock(blockId: String) {
         performUndoableAction {
             val blockToDelete = _uiState.value.content.find { it.id == blockId }
@@ -449,6 +565,7 @@ class NoteViewModel : ViewModel() {
         }
     }
 
+    // Thay đổi kích thước ảnh
     fun resizeImage(blockId: String) {
         performUndoableAction {
             val block = _uiState.value.content.find { it.id == blockId } as? ImageBlock
@@ -458,23 +575,34 @@ class NoteViewModel : ViewModel() {
         }
     }
 
+    // Cập nhật mô tả ảnh
     fun updateImageDescription(blockId: String, description: String) {
+        // Không cần performUndoableAction ở đây nếu chỉ là thay đổi mô tả mà không muốn lưu vào undo stack mỗi khi gõ
+        // Nếu muốn lưu, cần thêm logic saveStateForUndoInternal tương tự TextBlock
         (_uiState.value.content.find { it.id == blockId } as? ImageBlock)?.description = description
     }
 
+    // Đặt tiêu điểm vào một khối
     fun setFocus(blockId: String?) {
         val state = _uiState.value
         if (state.focusedBlockId != blockId) {
+            // Khi tiêu điểm thay đổi, commit hành động trước đó để lưu trạng thái
+            if (state.focusedBlockId != null) {
+                commitActionForUndo()
+            }
             state.focusedBlockId = blockId
             state.selectedImageId = null
             _pendingStyles.value = emptySet()
         }
+        updateUndoRedoButtons() // Cập nhật trạng thái nút khi tiêu điểm thay đổi
     }
 
+    // Bật/tắt thanh công cụ định dạng văn bản
     fun toggleTextFormatToolbar(isVisible: Boolean) {
         _uiState.value.isTextFormatToolbarVisible = isVisible
     }
 
+    // Xử lý bật/tắt Accordion
     fun onAccordionToggled(blockId: String) {
         performUndoableAction {
             val block = _uiState.value.content.find { it.id == blockId } as? AccordionBlock
@@ -484,25 +612,29 @@ class NoteViewModel : ViewModel() {
         }
     }
 
+    // Xử lý thay đổi trạng thái Toggle Switch
     fun onToggleSwitchChanged(blockId: String, isOn: Boolean) {
         performUndoableAction {
             (_uiState.value.content.find { it.id == blockId } as? ToggleSwitchBlock)?.isOn = isOn
         }
     }
 
+    // Xử lý thay đổi lựa chọn Radio Group
     fun onRadioSelectionChanged(groupId: String, selectedItemId: String) {
         performUndoableAction {
             (_uiState.value.content.find { it.id == groupId } as? RadioGroupBlock)?.selectedId = selectedItemId
         }
     }
 
+    // Lưu ghi chú
     fun saveNote() {
         viewModelScope.launch {
-            commitActionForUndo()
+            commitActionForUndo() // Đảm bảo trạng thái cuối cùng được lưu
             Log.d("NoteEditorDebug", "Note Saved: Title='${_uiState.value.title}', Content size=${_uiState.value.content.size}")
         }
     }
 
+    // Bật/tắt phát âm thanh
     fun togglePlaying(audioBlockId: String, filePath: String?) {
         if (filePath == null) return
 
@@ -536,6 +668,7 @@ class NoteViewModel : ViewModel() {
         }
     }
 
+    // Dừng phát âm thanh
     fun stopPlaying() {
         mediaPlayer?.apply {
             if (isPlaying) {
@@ -549,26 +682,64 @@ class NoteViewModel : ViewModel() {
         }
     }
 
+    // Giải phóng MediaPlayer
     private fun releasePlayer() {
         mediaPlayer?.release()
         mediaPlayer = null
     }
 
+    // Giải phóng MediaRecorder
     private fun releaseRecorder() {
         mediaRecorder?.release()
         mediaRecorder = null
     }
 
+    // Định dạng thời lượng từ mili giây sang MM:SS
     private fun formatDuration(millis: Long): String {
         val minutes = TimeUnit.MILLISECONDS.toMinutes(millis)
         val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) - TimeUnit.MINUTES.toSeconds(minutes)
         return String.format("%02d:%02d", minutes, seconds)
     }
 
+    // Xử lý khi ViewModel bị xóa
     override fun onCleared() {
         super.onCleared()
         releaseRecorder()
         releasePlayer()
         recordingJob?.cancel()
+    }
+
+    // Hàm để di chuyển một ContentBlock
+    fun moveContentBlock(fromIndex: Int, toIndex: Int) {
+        if (fromIndex == toIndex || fromIndex < 0 || fromIndex >= _uiState.value.content.size ||
+            toIndex < 0 || toIndex > _uiState.value.content.size) {
+            return
+        }
+        performUndoableAction {
+            val contentList = _uiState.value.content
+            val movedBlock = contentList.removeAt(fromIndex)
+            contentList.add(toIndex, movedBlock)
+            // Đảm bảo có một TextBlock trống sau khi di chuyển nếu cần
+            if (movedBlock !is TextBlock && toIndex + 1 < contentList.size && contentList[toIndex + 1] !is TextBlock) {
+                contentList.add(toIndex + 1, TextBlock())
+            } else if (movedBlock !is TextBlock && toIndex == contentList.lastIndex) {
+                contentList.add(TextBlock())
+            }
+            Log.d("NoteEditorDebug", "Moved block from $fromIndex to $toIndex")
+        }
+    }
+
+    // Các hàm hỗ trợ kéo thả
+    fun setDraggingBlockId(id: String?) {
+        _uiState.update { it.deepCopy().apply { draggingBlockId = id } }
+    }
+
+    fun setDropTargetIndex(index: Int?) {
+        _uiState.update { it.deepCopy().apply { dropTargetIndex = index } }
+    }
+
+    // Hàm tiện ích để debug undo/redo stacks
+    fun getUndoRedoStackInfo(): String {
+        return "UndoStack: ${undoStack.size}, RedoStack: ${redoStack.size}"
     }
 }

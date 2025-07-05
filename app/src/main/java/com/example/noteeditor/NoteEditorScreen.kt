@@ -7,7 +7,10 @@ import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -20,9 +23,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,7 +41,7 @@ import com.example.noteeditor.composables.*
 import java.io.File
 import java.util.Objects
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun NoteEditorScreen(
     viewModel: NoteViewModel = viewModel(),
@@ -53,10 +60,16 @@ fun NoteEditorScreen(
 
     var tempImageUri by remember { mutableStateOf<Uri?>(null) }
 
+    // [MỚI] Trạng thái cho kéo thả
+    var draggingBlockIndex by remember { mutableStateOf<Int?>(null) }
+    var currentDropTargetIndex by remember { mutableStateOf<Int?>(null) }
+    val localDensity = LocalDensity.current
+
     val requestRecordAudioPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
         if (isGranted) {
+            Log.d("NoteEditorScreen", "RECORD_AUDIO permission granted. Starting recording.")
             viewModel.startNewAudioRecording(context)
         } else {
             Log.w("NoteEditorScreen", "RECORD_AUDIO permission denied.")
@@ -68,12 +81,11 @@ fun NoteEditorScreen(
     }
 
     LaunchedEffect(isKeyboardVisible) {
+        Log.d("NoteEditorScreen", "Keyboard visibility changed: $isKeyboardVisible")
         if (!isKeyboardVisible) {
-            // Khi bàn phím ẩn, không tự động tắt các thanh công cụ nữa
-            // vì người dùng có thể đang dùng thanh công cụ định dạng
-            // viewModel.toggleTextFormatToolbar(false)
             viewModel.onImageClick("")
             viewModel.stopPlaying()
+            Log.d("NoteEditorScreen", "Keyboard hidden. Cleared image selection and stopped audio.")
         }
     }
 
@@ -83,6 +95,7 @@ fun NoteEditorScreen(
             ".jpg",
             context.externalCacheDir
         )
+        Log.d("NoteEditorScreen", "Created temp image URI: ${file.absolutePath}")
         return FileProvider.getUriForFile(
             Objects.requireNonNull(context),
             "com.example.noteeditor.provider",
@@ -93,14 +106,22 @@ fun NoteEditorScreen(
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
-        uri?.let { viewModel.addImageAtCursor(it) }
+        uri?.let {
+            viewModel.addImageAtCursor(it)
+            Log.d("NoteEditorScreen", "Image selected from gallery: $it")
+        } ?: Log.d("NoteEditorScreen", "Image selection cancelled.")
     }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
         if (success) {
-            tempImageUri?.let { viewModel.addImageAtCursor(it) }
+            tempImageUri?.let {
+                viewModel.addImageAtCursor(it)
+                Log.d("NoteEditorScreen", "Image captured by camera: $it")
+            }
+        } else {
+            Log.d("NoteEditorScreen", "Image capture cancelled or failed.")
         }
     }
 
@@ -111,9 +132,16 @@ fun NoteEditorScreen(
                 onSaveClick = {
                     focusManager.clearFocus()
                     viewModel.saveNote()
+                    Log.d("NoteEditorScreen", "Save button clicked. Note saved.")
                 },
-                onUndoClick = { viewModel.undo() },
-                onRedoClick = { viewModel.redo() },
+                onUndoClick = {
+                    viewModel.undo()
+                    Log.d("NoteEditorScreen", "Undo button clicked. Current undo/redo info: ${viewModel.getUndoRedoStackInfo()}")
+                },
+                onRedoClick = {
+                    viewModel.redo()
+                    Log.d("NoteEditorScreen", "Redo button clicked. Current undo/redo info: ${viewModel.getUndoRedoStackInfo()}")
+                },
                 canUndo = canUndo,
                 canRedo = canRedo
             )
@@ -121,52 +149,95 @@ fun NoteEditorScreen(
         containerColor = Color.White,
         floatingActionButton = {
             if (showAddMoreMenu) {
-                ModalBottomSheet(onDismissRequest = { showAddMoreMenu = false }) {
+                ModalBottomSheet(onDismissRequest = {
+                    showAddMoreMenu = false
+                    Log.d("NoteEditorScreen", "Add More menu dismissed.")
+                }) {
                     Column(Modifier.padding(bottom = 32.dp)) {
                         ListItem(
                             headlineContent = { Text("Thêm Radio Button Group") },
                             leadingContent = { Icon(Icons.Default.RadioButtonChecked, null) },
-                            modifier = Modifier.clickable { viewModel.addRadioGroup(); showAddMoreMenu = false }
+                            modifier = Modifier.clickable {
+                                viewModel.addRadioGroup()
+                                showAddMoreMenu = false
+                                Log.d("NoteEditorScreen", "Added Radio Button Group.")
+                            }
                         )
                         ListItem(
                             headlineContent = { Text("Thêm Toggle Switch") },
                             leadingContent = { Icon(Icons.Default.ToggleOn, null) },
-                            modifier = Modifier.clickable { viewModel.addToggleSwitch(); showAddMoreMenu = false }
+                            modifier = Modifier.clickable {
+                                viewModel.addToggleSwitch()
+                                showAddMoreMenu = false
+                                Log.d("NoteEditorScreen", "Added Toggle Switch.")
+                            }
                         )
                         ListItem(
                             headlineContent = { Text("Thêm Accordion") },
                             leadingContent = { Icon(Icons.Default.KeyboardArrowDown, null) },
-                            modifier = Modifier.clickable { viewModel.addAccordion(); showAddMoreMenu = false }
+                            modifier = Modifier.clickable {
+                                viewModel.addAccordion()
+                                showAddMoreMenu = false
+                                Log.d("NoteEditorScreen", "Added Accordion.")
+                            }
                         )
                     }
                 }
             }
         },
         bottomBar = {
-            // [THAY ĐỔI] Cập nhật thanh công cụ để xử lý trạng thái ghi âm
             Column(Modifier.imePadding()) {
                 TransformingBottomToolbar(
                     isKeyboardVisible = isKeyboardVisible,
-                    // Text Formatting
                     isFormattingMode = uiState.isTextFormatToolbarVisible,
                     activeStyles = uiState.activeStyles,
-                    onToggleFormattingMode = { viewModel.toggleTextFormatToolbar(!uiState.isTextFormatToolbarVisible) },
-                    onStyleChange = { viewModel.toggleStyle(it) },
-                    onTextAlignChange = { viewModel.setTextAlign(it) },
-                    onListStyleChange = { viewModel.toggleListStyle() },
-                    onAddSeparator = { viewModel.addSeparator() },
-                    onFontSizeChange = { viewModel.setFontSize(it) },
-                    onTextColorChange = { viewModel.setTextColor(it) },
-                    onTextBgColorChange = { viewModel.setTextBackgroundColor(it) },
-                    // Main Actions
-                    onAddImageClick = { showImageSourceSheet = true },
-                    onAddCheckboxClick = { viewModel.addCheckbox() },
-                    onAddMoreClick = { showAddMoreMenu = it },
-                    // Recording
+                    onToggleFormattingMode = {
+                        viewModel.toggleTextFormatToolbar(!uiState.isTextFormatToolbarVisible)
+                        Log.d("NoteEditorScreen", "Toggled formatting toolbar visibility to ${!uiState.isTextFormatToolbarVisible}")
+                    },
+                    onStyleChange = {
+                        viewModel.toggleStyle(it)
+                        Log.d("NoteEditorScreen", "Toggled style: $it")
+                    },
+                    onTextAlignChange = {
+                        viewModel.setTextAlign(it)
+                        Log.d("NoteEditorScreen", "Set text alignment to: $it")
+                    },
+                    onListStyleChange = {
+                        viewModel.toggleListStyle()
+                        Log.d("NoteEditorScreen", "Toggled list style.")
+                    },
+                    onAddSeparator = {
+                        viewModel.addSeparator()
+                        Log.d("NoteEditorScreen", "Added separator.")
+                    },
+                    onFontSizeChange = {
+                        viewModel.setFontSize(it)
+                        Log.d("NoteEditorScreen", "Set font size to: $it")
+                    },
+                    onTextColorChange = {
+                        viewModel.setTextColor(it)
+                        Log.d("NoteEditorScreen", "Set text color to: $it")
+                    },
+                    onTextBgColorChange = {
+                        viewModel.setTextBackgroundColor(it)
+                        Log.d("NoteEditorScreen", "Set text background color to: $it")
+                    },
+                    onAddImageClick = {
+                        showImageSourceSheet = true
+                        Log.d("NoteEditorScreen", "Image source sheet opened.")
+                    },
+                    onAddCheckboxClick = {
+                        viewModel.addCheckbox()
+                        Log.d("NoteEditorScreen", "Added checkbox.")
+                    },
+                    onAddMoreClick = {
+                        showAddMoreMenu = it
+                        Log.d("NoteEditorScreen", "Add More menu visibility: $it")
+                    },
                     isRecordingActive = uiState.isRecordingActive,
                     recordingDuration = uiState.currentRecordingAudioBlock?.duration ?: "00:00",
                     onAddAudioClick = {
-                        // Luôn bắt đầu ghi âm mới khi nhấn nút này
                         if (ContextCompat.checkSelfPermission(
                                 context,
                                 Manifest.permission.RECORD_AUDIO
@@ -175,16 +246,26 @@ fun NoteEditorScreen(
                             viewModel.startNewAudioRecording(context)
                         } else {
                             requestRecordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            Log.d("NoteEditorScreen", "Requesting RECORD_AUDIO permission.")
                         }
                     },
-                    onSaveRecording = { viewModel.saveRecordedAudio() },
-                    onCancelRecording = { viewModel.cancelRecording() }
+                    onSaveRecording = {
+                        viewModel.saveRecordedAudio()
+                        Log.d("NoteEditorScreen", "Saved recorded audio.")
+                    },
+                    onCancelRecording = {
+                        viewModel.cancelRecording()
+                        Log.d("NoteEditorScreen", "Cancelled recording.")
+                    }
                 )
             }
         }
     ) { paddingValues ->
         if (showImageSourceSheet) {
-            ModalBottomSheet(onDismissRequest = { showImageSourceSheet = false }) {
+            ModalBottomSheet(onDismissRequest = {
+                showImageSourceSheet = false
+                Log.d("NoteEditorScreen", "Image source sheet dismissed.")
+            }) {
                 Column(Modifier.padding(bottom = 32.dp)) {
                     ListItem(
                         headlineContent = { Text("Chụp ảnh") },
@@ -194,6 +275,7 @@ fun NoteEditorScreen(
                             val uri = createImageUri(context)
                             tempImageUri = uri
                             cameraLauncher.launch(uri)
+                            Log.d("NoteEditorScreen", "Launched camera for image capture.")
                         }
                     )
                     ListItem(
@@ -202,6 +284,7 @@ fun NoteEditorScreen(
                         modifier = Modifier.clickable {
                             showImageSourceSheet = false
                             imagePickerLauncher.launch("image/*")
+                            Log.d("NoteEditorScreen", "Launched image picker for gallery.")
                         }
                     )
                 }
@@ -244,13 +327,19 @@ fun NoteEditorScreen(
                 ) {
                     BasicTextField(
                         value = uiState.title,
-                        onValueChange = { viewModel.onTitleChange(it) },
+                        onValueChange = {
+                            viewModel.onTitleChange(it)
+                            Log.d("NoteEditorScreen", "Title changed to: $it")
+                        },
                         textStyle = LocalTextStyle.current.copy(fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Black),
                         modifier = Modifier
                             .fillMaxWidth()
                             .onFocusChanged { focusState ->
                                 if (!focusState.isFocused) {
                                     viewModel.commitActionForUndo()
+                                    Log.d("NoteEditorScreen", "Title text field lost focus. Committed for undo.")
+                                } else {
+                                    Log.d("NoteEditorScreen", "Title text field gained focus.")
                                 }
                             },
                         singleLine = true,
@@ -267,54 +356,167 @@ fun NoteEditorScreen(
             }
 
             itemsIndexed(uiState.content, key = { _, block -> block.id }) { index, block ->
-                when (block) {
-                    is TextBlock -> TextBlockComposable(block,
-                        onValueChange = { viewModel.onContentBlockChange(block.id, it) },
-                        onFocusChange = { focusState ->
-                            if (focusState.isFocused) {
-                                viewModel.setFocus(block.id)
-                            } else {
-                                viewModel.commitActionForUndo()
+                val isDragging = draggingBlockIndex == index
+                val isDropTarget = currentDropTargetIndex == index
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onGloballyPositioned { layoutCoordinates ->
+                            // Cập nhật vị trí của từng item để tính toán drop target
+                            // Lưu ý: Trong một ứng dụng thực tế, bạn sẽ cần một cách quản lý vị trí tốt hơn
+                            // ví dụ: một map từ ID khối đến Rect/Offset
+                            // Để đơn giản, ở đây ta sẽ dùng index và chiều cao
+                            val itemHeight = layoutCoordinates.size.height.toFloat()
+                            val itemTop = layoutCoordinates.positionInWindow().y
+                            val itemBottom = itemTop + itemHeight
+
+                            // Logic để xác định drop target
+                            if (uiState.draggingBlockId != null) {
+                                val dragPosition = uiState.dropTargetIndex?.let {
+                                    lazyListState.layoutInfo.visibleItemsInfo.getOrNull(it)?.offset?.toFloat()
+                                } ?: 0f // Giả định vị trí kéo
+
+                                // Nếu vị trí kéo nằm trong khoảng của block hiện tại
+                                if (dragPosition >= itemTop && dragPosition < itemBottom) {
+                                    currentDropTargetIndex = index
+                                    Log.d("NoteEditorScreen", "Drop target updated to index: $index")
+                                }
                             }
                         }
-                    )
-                    is ImageBlock -> ImageBlockComposable(block, uiState.selectedImageId == block.id,
-                        onImageClick = {
-                            viewModel.onImageClick(block.id)
-                            focusManager.clearFocus()
-                        },
-                        onResize = { viewModel.resizeImage(block.id) },
-                        onDelete = { viewModel.deleteBlock(block.id) },
-                        onDescriptionChange = { newDesc -> viewModel.updateImageDescription(block.id, newDesc) }
-                    )
-                    is CheckboxBlock -> CheckboxBlockComposable(block,
-                        onCheckedChange = { viewModel.onCheckboxCheckedChange(block.id, it) },
-                        onValueChange = { viewModel.onContentBlockChange(block.id, it) },
-                        onFocusChange = { focusState ->
-                            if (focusState.isFocused) {
-                                viewModel.setFocus(block.id)
-                            } else {
-                                viewModel.commitActionForUndo()
+                        .combinedClickable(
+                            onLongClick = {
+                                // Bắt đầu kéo
+                                draggingBlockIndex = index
+                                viewModel.setDraggingBlockId(block.id)
+                                focusManager.clearFocus()
+                                Log.d("NoteEditorScreen", "Started dragging block with ID: ${block.id} at index: $index")
+                            },
+                            onClick = {
+                                // Xử lý click thông thường
+                                if (block is ImageBlock) {
+                                    viewModel.onImageClick(block.id)
+                                    focusManager.clearFocus()
+                                } else if (block is TextBlock || block is CheckboxBlock) {
+                                    viewModel.setFocus(block.id)
+                                }
                             }
-                        }
-                    )
-                    is SeparatorBlock -> SeparatorBlockComposable()
-                    is AudioBlock -> AudioBlockComposable(
-                        block,
-                        onDelete = { viewModel.deleteBlock(block.id) },
-                        onTogglePlaying = { id, path -> viewModel.togglePlaying(id, path) },
-                        onStopRecording = { viewModel.saveRecordedAudio() } // Chức năng này không còn dùng ở đây
-                    )
-                    is AccordionBlock -> AccordionBlockComposable(block, onToggle = { viewModel.onAccordionToggled(block.id) })
-                    is ToggleSwitchBlock -> ToggleSwitchBlockComposable(block, onToggle = { viewModel.onToggleSwitchChanged(block.id, it) })
-                    is RadioGroupBlock -> RadioGroupBlockComposable(block, onSelectionChange = { viewModel.onRadioSelectionChanged(block.id, it) })
+                        )
+                        .then(
+                            if (isDragging) Modifier.alpha(0.5f) else Modifier
+                        )
+                ) {
+                    when (block) {
+                        is TextBlock -> TextBlockComposable(block,
+                            onValueChange = {
+                                viewModel.onContentBlockChange(block.id, it)
+                                Log.d("NoteEditorScreen", "TextBlock content changed for ID: ${block.id}")
+                            },
+                            onFocusChange = { focusState ->
+                                if (focusState.isFocused) {
+                                    viewModel.setFocus(block.id)
+                                    Log.d("NoteEditorScreen", "TextBlock gained focus for ID: ${block.id}")
+                                } else {
+                                    viewModel.commitActionForUndo()
+                                    Log.d("NoteEditorScreen", "TextBlock lost focus for ID: ${block.id}. Committed for undo.")
+                                }
+                            }
+                        )
+                        is ImageBlock -> ImageBlockComposable(block, uiState.selectedImageId == block.id,
+                            onImageClick = {
+                                viewModel.onImageClick(block.id)
+                                focusManager.clearFocus()
+                                Log.d("NoteEditorScreen", "ImageBlock clicked: ${block.id}")
+                            },
+                            onResize = {
+                                viewModel.resizeImage(block.id)
+                                Log.d("NoteEditorScreen", "Resized ImageBlock: ${block.id}")
+                            },
+                            onDelete = {
+                                viewModel.deleteBlock(block.id)
+                                Log.d("NoteEditorScreen", "Deleted ImageBlock: ${block.id}")
+                            },
+                            onDescriptionChange = { newDesc ->
+                                viewModel.updateImageDescription(block.id, newDesc)
+                                Log.d("NoteEditorScreen", "Updated description for ImageBlock ${block.id}: $newDesc")
+                            }
+                        )
+                        is CheckboxBlock -> CheckboxBlockComposable(block,
+                            onCheckedChange = {
+                                viewModel.onCheckboxCheckedChange(block.id, it)
+                                Log.d("NoteEditorScreen", "Checkbox state changed for ID ${block.id}: $it")
+                            },
+                            onValueChange = {
+                                viewModel.onContentBlockChange(block.id, it)
+                                Log.d("NoteEditorScreen", "CheckboxBlock content changed for ID: ${block.id}")
+                            },
+                            onFocusChange = { focusState ->
+                                if (focusState.isFocused) {
+                                    viewModel.setFocus(block.id)
+                                    Log.d("NoteEditorScreen", "CheckboxBlock gained focus for ID: ${block.id}")
+                                } else {
+                                    viewModel.commitActionForUndo()
+                                    Log.d("NoteEditorScreen", "CheckboxBlock lost focus for ID: ${block.id}. Committed for undo.")
+                                }
+                            }
+                        )
+                        is SeparatorBlock -> SeparatorBlockComposable()
+                        is AudioBlock -> AudioBlockComposable(
+                            block,
+                            onDelete = {
+                                viewModel.deleteBlock(block.id)
+                                Log.d("NoteEditorScreen", "Deleted AudioBlock: ${block.id}")
+                            },
+                            onTogglePlaying = { id, path ->
+                                viewModel.togglePlaying(id, path)
+                                Log.d("NoteEditorScreen", "Toggled playing for AudioBlock ${block.id}. Is playing: ${block.isPlaying}")
+                            },
+                            onStopRecording = {
+                                viewModel.saveRecordedAudio()
+                                Log.d("NoteEditorScreen", "Stopped recording from AudioBlock.")
+                            }
+                        )
+                        is AccordionBlock -> AccordionBlockComposable(block, onToggle = {
+                            viewModel.onAccordionToggled(block.id)
+                            Log.d("NoteEditorScreen", "Toggled AccordionBlock: ${block.id}")
+                        })
+                        is ToggleSwitchBlock -> ToggleSwitchBlockComposable(block, onToggle = {
+                            viewModel.onToggleSwitchChanged(block.id, it)
+                            Log.d("NoteEditorScreen", "ToggleSwitchBlock changed for ID ${block.id}: $it")
+                        })
+                        is RadioGroupBlock -> RadioGroupBlockComposable(block, onSelectionChange = {
+                            viewModel.onRadioSelectionChanged(block.id, it)
+                            Log.d("NoteEditorScreen", "RadioGroupBlock selected item for ID ${block.id}: $it")
+                        })
+                    }
+
+                    // [MỚI] Hiển thị đường kẻ khi kéo
+                    if (isDropTarget && draggingBlockIndex != null && draggingBlockIndex != index) {
+                        Divider(
+                            color = MaterialTheme.colorScheme.primary,
+                            thickness = 2.dp,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Log.d("NoteEditorScreen", "Displaying drop target divider at index: $index")
+                    }
                 }
                 if (index < uiState.content.lastIndex) {
                     Spacer(Modifier.height(8.dp))
                 }
             }
-        }
 
-        // [XÓA] Toàn bộ khối AnimatedVisibility cho RecordingScreen đã bị xóa.
+            // [MỚI] Thêm một item giả để cho phép thả vào cuối danh sách
+            item {
+                if (uiState.draggingBlockId != null && currentDropTargetIndex == uiState.content.lastIndex) {
+                    Divider(
+                        color = MaterialTheme.colorScheme.primary,
+                        thickness = 2.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Log.d("NoteEditorScreen", "Displaying drop target divider at end of list.")
+                }
+                Spacer(Modifier.height(56.dp)) // Đủ không gian cho FAB
+            }
+        }
     }
 }

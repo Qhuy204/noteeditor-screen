@@ -27,6 +27,9 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
+import coil.request.ImageRequest // Import mới
+import coil.size.OriginalSize // Import mới
+import androidx.compose.ui.platform.LocalContext // Import mới
 import com.example.noteeditor.* // Import all classes from noteeditor package
 import java.util.concurrent.TimeUnit // Import TimeUnit for duration formatting
 
@@ -102,6 +105,7 @@ fun ImageBlockComposable(
 ) {
     val imageSizeFraction = if (block.isResized) 0.5f else 1f
     var isDescriptionVisible by remember { mutableStateOf(false) }
+    val context = LocalContext.current // Lấy context cho ImageRequest
 
     Column(
         modifier = Modifier
@@ -119,7 +123,13 @@ fun ImageBlockComposable(
                     else Modifier
                 )
         ) {
-            val painter = rememberAsyncImagePainter(model = block.uri)
+            // [CẬP NHẬT] Sử dụng ImageRequest với OriginalSize để giữ nguyên chất lượng ảnh
+            val painter = rememberAsyncImagePainter(
+                model = ImageRequest.Builder(context) // Sử dụng LocalContext
+                    .data(block.uri)
+                    .size(OriginalSize) // Yêu cầu tải ảnh với kích thước gốc
+                    .build()
+            )
             val aspectRatio = with(painter.intrinsicSize) {
                 if (isSpecified && height != 0f) width / height else 16f / 9f
             }
@@ -130,7 +140,7 @@ fun ImageBlockComposable(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(aspectRatio),
-                contentScale = ContentScale.Fit
+                contentScale = ContentScale.Fit // Giữ nguyên chất lượng ảnh
             )
 
             if (isSelected) {
