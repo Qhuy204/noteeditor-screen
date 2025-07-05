@@ -61,7 +61,7 @@ fun NoteEditorScreen(
 
     var tempImageUri by remember { mutableStateOf<Uri?>(null) }
 
-    // [MỚI] Trạng thái cho kéo thả
+    // Trạng thái cho kéo thả
     var draggingBlockIndex by remember { mutableStateOf<Int?>(null) }
     var currentDropTargetIndex by remember { mutableStateOf<Int?>(null) }
     val localDensity = LocalDensity.current
@@ -77,7 +77,7 @@ fun NoteEditorScreen(
         }
     }
 
-    // [MỚI] Launcher để mở ảnh trong thư viện
+    // Launcher để mở ảnh trong thư viện
     val openImageInGalleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -276,7 +276,7 @@ fun NoteEditorScreen(
                 showImageSourceSheet = false
                 Log.d("NoteEditorScreen", "Image source sheet dismissed.")
             }) {
-                Column(Modifier.padding(bottom = 32.dp)) {
+                Column(Modifier.padding(bottom = 16.dp)) {
                     ListItem(
                         headlineContent = { Text("Chụp ảnh") },
                         leadingContent = { Icon(Icons.Default.PhotoCamera, null) },
@@ -306,29 +306,64 @@ fun NoteEditorScreen(
             modifier = Modifier
                 .padding(paddingValues)
                 .fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp)
         ) {
             item {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween // Added to space out items
                 ) {
                     Text(
                         text = uiState.date,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.Gray
+                        color = Color.Gray,
+                        fontWeight = FontWeight(500),
+                        fontSize = 13.sp // Fixed: using .sp for font size
                     )
-                    Spacer(Modifier.width(8.dp))
-                    AssistChip(
-                        onClick = { /* TODO: Category selection logic */ },
-                        label = { Text(uiState.category) },
-                        leadingIcon = { Icon(Icons.Default.Folder, contentDescription = null, tint = Color.Gray) },
-                        shape = RoundedCornerShape(20.dp),
-                        colors = AssistChipDefaults.assistChipColors(containerColor = Color(0xFFF2F2F2)),
-                        border = null
-                    )
+
+                    Box(
+                        modifier = Modifier, // Changed to allow the AssistChip to control its width
+                        contentAlignment = Alignment.CenterEnd // Align to the end of the Row
+                    ) {
+                        AssistChip(
+                            onClick = { /* TODO: Implement click logic for category chip */ },
+                            label = {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 4.dp, vertical = 0.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Folder,
+                                        contentDescription = null,
+                                        tint = Color.Gray,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = uiState.category,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    )
+                                }
+                            },
+                            modifier = Modifier
+                                .width(160.dp)
+                                .height(40.dp),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = AssistChipDefaults.assistChipColors(containerColor = Color(0xFFF2F2F2)),
+                            border = null
+                        )
+
+                    }
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
+
 
                 Box(
                     modifier = Modifier
@@ -355,14 +390,14 @@ fun NoteEditorScreen(
                         singleLine = true,
                         decorationBox = { innerTextField ->
                             if (uiState.title.isEmpty()) {
-                                Text("Tiêu đề", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                                Text("Tiêu đề", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = Color.Gray)
                             }
                             innerTextField()
                         }
                     )
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(24.dp))
             }
 
             itemsIndexed(uiState.content, key = { _, block -> block.id }) { index, block ->
@@ -458,7 +493,7 @@ fun NoteEditorScreen(
                                 Log.d("NoteEditorScreen", "Toggled drawing mode for ImageBlock ${block.id}. New state: $imageIdToDraw")
                             },
                             onCopy = { imageIdToCopy -> // Callback copy ảnh
-                                viewModel.copyImage(imageIdToCopy)
+                                viewModel.copyImage(context, imageIdToCopy) // Truyền context vào đây
                                 Log.d("NoteEditorScreen", "Copied ImageBlock: $imageIdToCopy")
                             },
                             onOpenInGallery = { imageIdToOpen -> // Callback mở ảnh trong thư viện

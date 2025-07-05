@@ -469,7 +469,7 @@ fun AudioBlockComposable(
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = block.duration, // Luôn hiển thị duration đã lưu
+                    text = block.duration,
                     style = MaterialTheme.typography.bodyMedium,
                     color = accentColor,
                     modifier = Modifier.padding(end = 4.dp)

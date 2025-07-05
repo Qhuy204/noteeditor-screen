@@ -52,7 +52,15 @@ fun NoteEditorTopAppBar(
             IconButton(onClick = onRedoClick, enabled = canRedo) {
                 Icon(Icons.Default.Redo, "Redo", tint = if (canRedo) LocalContentColor.current else Color.Gray)
             }
-            TextButton(onClick = onSaveClick) { Text("Lưu") }
+            TextButton(onClick = onSaveClick) {
+                Text(
+                    text = "Save",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF1A65FF)
+                )
+
+            }
         },
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = Color.Transparent,
@@ -60,7 +68,8 @@ fun NoteEditorTopAppBar(
             navigationIconContentColor = LocalContentColor.current,
             actionIconContentColor = LocalContentColor.current,
             titleContentColor = LocalContentColor.current
-        )
+        ),
+        modifier = Modifier.padding(horizontal = 4.dp)
     )
 }
 
@@ -95,9 +104,9 @@ fun TransformingBottomToolbar(
     // Thanh công cụ sẽ phẳng (không có bo góc/padding) khi bàn phím hiện.
     // Giao diện ghi âm sẽ có cùng hình dạng nên không ảnh hưởng đến logic này.
     val isFlat = isKeyboardVisible
-    val horizontalPadding by animateDpAsState(targetValue = if (isFlat) 0.dp else 16.dp, animationSpec = animSpec, label = "HorizontalPadding")
+    val horizontalPadding by animateDpAsState(targetValue = if (isFlat) 0.dp else 24.dp, animationSpec = animSpec, label = "HorizontalPadding")
     val cornerRadius by animateDpAsState(targetValue = if (isFlat) 0.dp else 32.dp, animationSpec = animSpec, label = "CornerRadius")
-    val surfaceBottomPadding by animateDpAsState(targetValue = if (isFlat) 0.dp else 16.dp, animationSpec = animSpec, label = "SurfaceBottomPadding")
+    val surfaceBottomPadding by animateDpAsState(targetValue = if (isFlat) 0.dp else 24.dp, animationSpec = animSpec, label = "SurfaceBottomPadding")
 
     // Box này xử lý vị trí tổng thể và padding cho bàn phím (IME)
     Box(
@@ -201,7 +210,7 @@ private fun InlineRecordingBar(
 
     Row(
         modifier = modifier
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 24.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {

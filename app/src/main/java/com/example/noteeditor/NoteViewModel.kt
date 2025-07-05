@@ -1,6 +1,8 @@
 // File: NoteViewModel.kt
 package com.example.noteeditor
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.media.MediaPlayer
 import android.media.MediaRecorder
@@ -600,19 +602,19 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-    // Copy ảnh (logic placeholder)
-    fun copyImage(blockId: String) {
-        Log.d("NoteViewModel", "Copying image with ID: $blockId (Placeholder)")
-        // Trong một ứng dụng thực tế, bạn sẽ copy Uri của ảnh vào clipboard
-        // hoặc copy bitmap của ảnh. Việc này yêu cầu Context và các API Android.
-        // Ví dụ:
-        // val uri = (_uiState.value.content.find { it.id == blockId } as? ImageBlock)?.uri
-        // uri?.let {
-        //     val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        //     val clipData = ClipData.newUri(context.contentResolver, "Image", it)
-        //     clipboardManager.setPrimaryClip(clipData)
-        //     Log.d("NoteViewModel", "Image URI copied to clipboard: $it")
-        // }
+    // Copy ảnh
+    fun copyImage(context: Context, blockId: String) {
+        val imageBlock = _uiState.value.content.find { it.id == blockId } as? ImageBlock
+        imageBlock?.uri?.let { uri ->
+            try {
+                val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clipData = ClipData.newUri(context.contentResolver, "Image", uri)
+                clipboardManager.setPrimaryClip(clipData)
+                Log.d("NoteViewModel", "Image URI copied to clipboard: $uri")
+            } catch (e: Exception) {
+                Log.e("NoteViewModel", "Failed to copy image URI to clipboard: ${e.message}", e)
+            }
+        } ?: Log.e("NoteViewModel", "Image block or URI not found for ID: $blockId")
     }
 
     // Mở ảnh trong thư viện (logic placeholder)
