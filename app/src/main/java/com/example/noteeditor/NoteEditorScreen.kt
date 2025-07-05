@@ -41,6 +41,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.noteeditor.composables.*
 import java.io.File
 import java.util.Objects
+import com.mohamedrejeb.richeditor.model.RichTextState
+import com.mohamedrejeb.richeditor.ui.material3.RichTextEditor // Import RichTextEditor
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -191,6 +193,24 @@ fun NoteEditorScreen(
                                 Log.d("NoteEditorScreen", "Added Accordion.")
                             }
                         )
+                        ListItem(
+                            headlineContent = { Text("Thêm Tiêu đề phụ") },
+                            leadingContent = { Icon(Icons.Default.Title, null) },
+                            modifier = Modifier.clickable {
+                                viewModel.addSectionHeader()
+                                showAddMoreMenu = false
+                                Log.d("NoteEditorScreen", "Added Section Header.")
+                            }
+                        )
+                        ListItem(
+                            headlineContent = { Text("Thêm Danh sách đánh số") },
+                            leadingContent = { Icon(Icons.Default.FormatListNumbered, null) },
+                            modifier = Modifier.clickable {
+                                viewModel.addNumberedListItem()
+                                showAddMoreMenu = false
+                                Log.d("NoteEditorScreen", "Added Numbered List Item.")
+                            }
+                        )
                     }
                 }
             }
@@ -200,23 +220,24 @@ fun NoteEditorScreen(
                 TransformingBottomToolbar(
                     isKeyboardVisible = isKeyboardVisible,
                     isFormattingMode = uiState.isTextFormatToolbarVisible,
-                    activeStyles = uiState.activeStyles,
+                    // Truyền RichTextState trực tiếp để thanh công cụ có thể tương tác
+                    richTextState = uiState.currentRichTextState,
                     onToggleFormattingMode = {
                         viewModel.toggleTextFormatToolbar(!uiState.isTextFormatToolbarVisible)
-                        Log.d("NoteEditorScreen", "Toggled formatting toolbar visibility to ${!uiState.isTextFormatToolbarVisible}")
+                        Log.d(
+                            "NoteEditorScreen",
+                            "Toggled formatting toolbar visibility to ${!uiState.isTextFormatToolbarVisible}"
+                        )
                     },
-                    onStyleChange = {
-                        viewModel.toggleStyle(it)
-                        Log.d("NoteEditorScreen", "Toggled style: $it")
-                    },
-                    onTextAlignChange = {
-                        viewModel.setTextAlign(it)
-                        Log.d("NoteEditorScreen", "Set text alignment to: $it")
-                    },
-                    onListStyleChange = {
-                        viewModel.toggleListStyle()
-                        Log.d("NoteEditorScreen", "Toggled list style.")
-                    },
+                    onToggleBold = { viewModel.toggleBold() },
+                    onToggleItalic = { viewModel.toggleItalic() },
+                    onToggleUnderline = { viewModel.toggleUnderline() },
+                    onToggleStrikethrough = { viewModel.toggleStrikethrough() },
+                    onTextAlignChange = { viewModel.setTextAlign(it) },
+                    onToggleBulletList = { viewModel.toggleBulletList() },
+                    onToggleNumberedList = { viewModel.toggleNumberedList() },
+//                    onIndent = { viewModel.indent() }, // Sửa lỗi TODO
+//                    onOutdent = { viewModel.outdent() }, // Sửa lỗi TODO
                     onAddSeparator = {
                         viewModel.addSeparator()
                         Log.d("NoteEditorScreen", "Added separator.")
@@ -266,7 +287,8 @@ fun NoteEditorScreen(
                     onCancelRecording = {
                         viewModel.cancelRecording()
                         Log.d("NoteEditorScreen", "Cancelled recording.")
-                    }
+                    },
+                    modifier = Modifier // Đặt modifier thành Modifier.fillMaxWidth() hoặc Modifier.wrapContentSize()
                 )
             }
         }
@@ -442,7 +464,7 @@ fun NoteEditorScreen(
                                 if (block is ImageBlock) {
                                     viewModel.onImageClick(block.id)
                                     focusManager.clearFocus()
-                                } else if (block is TextBlock || block is CheckboxBlock) {
+                                } else if (block is TextBlock || block is CheckboxBlock || block is SubHeaderBlock || block is NumberedListItemBlock) {
                                     viewModel.setFocus(block.id)
                                 }
                             }
@@ -454,7 +476,8 @@ fun NoteEditorScreen(
                     when (block) {
                         is TextBlock -> TextBlockComposable(block,
                             onValueChange = {
-                                viewModel.onContentBlockChange(block.id, it)
+                                // Truyền RichTextState trực tiếp
+                                viewModel.onTextBlockChange(block.id, it)
                                 Log.d("NoteEditorScreen", "TextBlock content changed for ID: ${block.id}")
                             },
                             onFocusChange = { focusState ->
@@ -464,6 +487,40 @@ fun NoteEditorScreen(
                                 } else {
                                     viewModel.commitActionForUndo()
                                     Log.d("NoteEditorScreen", "TextBlock lost focus for ID: ${block.id}. Committed for undo.")
+                                }
+                            },
+                            richTextState = uiState.currentRichTextState // Truyền RichTextState của khối đang focus
+                        )
+                        is SubHeaderBlock -> SubHeaderBlockComposable(block,
+                            onValueChange = {
+                                // Truyền TextFieldValue
+                                viewModel.onOtherBlockChange(block.id, it)
+                                Log.d("NoteEditorScreen", "SubHeaderBlock content changed for ID: ${block.id}")
+                            },
+                            onFocusChange = { focusState ->
+                                if (focusState.isFocused) {
+                                    viewModel.setFocus(block.id)
+                                    Log.d("NoteEditorScreen", "SubHeaderBlock gained focus for ID: ${block.id}")
+                                } else {
+                                    viewModel.commitActionForUndo()
+                                    Log.d("NoteEditorScreen", "SubHeaderBlock lost focus for ID: ${block.id}. Committed for undo.")
+                                }
+                            }
+                        )
+                        is NumberedListItemBlock -> NumberedListItemBlockComposable(block,
+                            index = index, // Truyền index để hiển thị số thứ tự
+                            onValueChange = {
+                                // Truyền TextFieldValue
+                                viewModel.onOtherBlockChange(block.id, it)
+                                Log.d("NoteEditorScreen", "NumberedListItemBlock content changed for ID: ${block.id}")
+                            },
+                            onFocusChange = { focusState ->
+                                if (focusState.isFocused) {
+                                    viewModel.setFocus(block.id)
+                                    Log.d("NoteEditorScreen", "NumberedListItemBlock gained focus for ID: ${block.id}")
+                                } else {
+                                    viewModel.commitActionForUndo()
+                                    Log.d("NoteEditorScreen", "NumberedListItemBlock lost focus for ID: ${block.id}. Committed for undo.")
                                 }
                             }
                         )
@@ -518,7 +575,8 @@ fun NoteEditorScreen(
                                 Log.d("NoteEditorScreen", "Checkbox state changed for ID ${block.id}: $it")
                             },
                             onValueChange = {
-                                viewModel.onContentBlockChange(block.id, it)
+                                // Truyền TextFieldValue
+                                viewModel.onOtherBlockChange(block.id, it)
                                 Log.d("NoteEditorScreen", "CheckboxBlock content changed for ID: ${block.id}")
                             },
                             onFocusChange = { focusState ->

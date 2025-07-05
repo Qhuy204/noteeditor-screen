@@ -45,56 +45,117 @@ import androidx.compose.ui.input.pointer.PointerInputChange // Import cần thi�
 import androidx.compose.ui.ExperimentalComposeUiApi // Annotation cần thiết
 import com.example.noteeditor.* // Import all classes from noteeditor package
 import java.util.concurrent.TimeUnit // Import TimeUnit for duration formatting
+import com.mohamedrejeb.richeditor.ui.material3.RichTextEditor // Import RichTextEditor
+import com.mohamedrejeb.richeditor.model.RichTextState // Import RichTextState
 
 @Composable
 fun TextBlockComposable(
     block: TextBlock,
+    onValueChange: (RichTextState) -> Unit, // Thay đổi kiểu dữ liệu
+    onFocusChange: (FocusState) -> Unit,
+    richTextState: RichTextState // RichTextState của khối đang focus
+) {
+    // Hợp nhất ParagraphStyle (chứa thông tin căn lề) vào TextStyle cơ sở.
+    // Lưu ý: RichTextEditor có thể xử lý căn lề riêng, đây chỉ là fallback/tương thích
+    val textStyle = ComposeTextStyle.Default.merge(block.paragraphStyle)
+
+    Box(modifier = Modifier.fillMaxWidth()) { // Box để chứa RichTextEditor và Placeholder
+        RichTextEditor(
+            state = richTextState, // Sử dụng RichTextState được truyền vào
+//            onValueChange = onValueChange,
+            modifier = Modifier
+                .fillMaxWidth() // Đảm bảo toàn bộ composable chiếm đầy chiều rộng
+                .onFocusChanged(onFocusChange),
+            textStyle = textStyle, // Có thể cần điều chỉnh cách RichTextEditor sử dụng TextStyle này
+        )
+        // Logic placeholder cho RichTextEditor
+        if (richTextState.annotatedString.isEmpty()) {
+            Text(
+                "Nội dung...",
+                color = Color.Gray,
+                style = textStyle,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopStart) // Đảm bảo placeholder nằm ở đầu
+                    .padding(
+                        start = if (block.isListItem) 24.dp else 0.dp // Điều chỉnh padding cho bullet
+                    )
+            )
+        }
+    }
+}
+
+@Composable
+fun SubHeaderBlockComposable(
+    block: SubHeaderBlock,
     onValueChange: (TextFieldValue) -> Unit,
     onFocusChange: (FocusState) -> Unit
 ) {
-    // Hợp nhất ParagraphStyle (chứa thông tin căn lề) vào TextStyle cơ sở.
-    val textStyle = ComposeTextStyle.Default.merge(block.paragraphStyle)
+    val textStyle = ComposeTextStyle.Default
+        .merge(block.paragraphStyle)
+        .merge(block.spanStyle)
 
     BasicTextField(
         value = block.value,
         onValueChange = onValueChange,
         modifier = Modifier
-            .fillMaxWidth() // Đảm bảo toàn bộ composable chiếm đầy chiều rộng
+            .fillMaxWidth()
             .onFocusChanged(onFocusChange),
         textStyle = textStyle,
         decorationBox = { innerTextField ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top
-            ) {
-                // Hiển thị dấu đầu dòng nếu đây là một mục danh sách
-                if (block.isListItem) {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                if (block.value.annotatedString.isEmpty()) {
                     Text(
-                        text = "• ",
+                        "Tiêu đề phụ...",
+                        color = Color.Gray,
                         style = textStyle,
-                        modifier = Modifier.padding(end = 8.dp)
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-
-                // Box này sẽ chiếm hết không gian còn lại trong Row
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    // Hiển thị placeholder nếu không có nội dung
-                    if (block.value.annotatedString.isEmpty()) {
-                        Text(
-                            "Nội dung...",
-                            color = Color.Gray,
-                            // Placeholder cũng phải tuân theo kiểu căn lề
-                            style = textStyle,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        innerTextField()
-                    }
-                }
+                innerTextField()
             }
         }
     )
+}
+
+@Composable
+fun NumberedListItemBlockComposable(
+    block: NumberedListItemBlock,
+    index: Int, // Cần index để hiển thị số thứ tự
+    onValueChange: (TextFieldValue) -> Unit,
+    onFocusChange: (FocusState) -> Unit
+) {
+    val textStyle = ComposeTextStyle.Default.merge(block.paragraphStyle)
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top
+    ) {
+        Text(
+            text = "${index + 1}. ", // Hiển thị số thứ tự
+            style = textStyle,
+            modifier = Modifier.padding(end = 8.dp)
+        )
+        BasicTextField(
+            value = block.value,
+            onValueChange = onValueChange,
+            modifier = Modifier
+                .weight(1f)
+                .onFocusChanged(onFocusChange),
+            textStyle = textStyle,
+            decorationBox = { innerTextField ->
+                if (block.value.annotatedString.isEmpty()) {
+                    Text(
+                        "Mục danh sách...",
+                        color = Color.Gray,
+                        style = textStyle,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                innerTextField()
+            }
+        )
+    }
 }
 
 
@@ -161,7 +222,7 @@ fun ImageBlockComposable(
                     isResized = block.isResized,
                     onDescribe = { isDescriptionVisible = !isDescriptionVisible },
                     onDraw = { onDraw(block.id) }, // Bật chế độ vẽ cho ảnh này
-                    onResize = onResize,
+                    onResize = onResize, // Truyền onResize vào đây
                     onCopy = { onCopy(block.id) },
                     onOpenInGallery = { onOpenInGallery(block.id) },
                     onDelete = onDelete
@@ -197,7 +258,8 @@ fun ImageBlockComposable(
 @Composable
 fun BoxScope.ImageActionMenu(
     isResized: Boolean, onDescribe: () -> Unit, onDraw: () -> Unit,
-    onResize: () -> Unit, onCopy: () -> Unit, onOpenInGallery: () -> Unit, onDelete: () -> Unit
+    onResize: () -> Unit, // Đã thêm onResize vào đây
+    onCopy: () -> Unit, onOpenInGallery: () -> Unit, onDelete: () -> Unit
 ) {
     Row(
         modifier = Modifier

@@ -9,20 +9,18 @@ import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.util.Log
-import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.TextUnit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.noteeditor.composables.Style // Import Style enum
+import com.mohamedrejeb.richeditor.model.RichTextState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,9 +44,6 @@ class NoteViewModel : ViewModel() {
     val canUndo: StateFlow<Boolean> = _canUndo.asStateFlow()
     private val _canRedo = MutableStateFlow(false)
     val canRedo: StateFlow<Boolean> = _canRedo.asStateFlow()
-
-    private val _pendingStyles = MutableStateFlow<Set<Style>>(emptySet())
-    val pendingStyles: StateFlow<Set<Style>> = _pendingStyles.asStateFlow()
 
     private var mediaRecorder: MediaRecorder? = null
     private var mediaPlayer: MediaPlayer? = null
@@ -178,57 +173,43 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-    // Xử lý thay đổi nội dung của một ContentBlock
-    fun onContentBlockChange(blockId: String, newValue: TextFieldValue) {
+    // Xử lý thay đổi nội dung của TextBlock (sử dụng RichTextState)
+    fun onTextBlockChange(blockId: String, newValue: RichTextState) {
+        val block = _uiState.value.content.find { it.id == blockId } as? TextBlock
+        if (block != null) {
+            // RichTextState tự quản lý nội bộ các thay đổi,
+            // chúng ta chỉ cần cập nhật tham chiếu và lưu trạng thái khi cần
+            if (block.value != newValue) { // Kiểm tra nếu tham chiếu đối tượng RichTextState thay đổi
+                Log.d("ContentChange", "TextBlock RichTextState object changed. Saving state.")
+                saveStateForUndoInternal(_uiState.value.deepCopy())
+            }
+            block.value = newValue
+        }
+        updateUndoRedoButtons() // Cập nhật trạng thái nút sau mỗi thay đổi nội dung
+    }
+
+    // Xử lý thay đổi nội dung của các khối khác (sử dụng TextFieldValue)
+    fun onOtherBlockChange(blockId: String, newValue: TextFieldValue) {
         val block = _uiState.value.content.find { it.id == blockId }
         when (block) {
-            is TextBlock -> {
+            is SubHeaderBlock -> {
                 val oldValue = block.value
-                // Lưu trạng thái nếu TextFieldValue đã thay đổi (bao gồm text, selection, span/paragraph styles)
                 if (oldValue != newValue) {
-                    Log.d("ContentChange", "TextBlock value changed. Saving state.")
                     saveStateForUndoInternal(_uiState.value.deepCopy())
                 }
-
-                val builder = AnnotatedString.Builder(newValue.annotatedString)
-
-                // Re-apply existing styles to the new text range
-                // This ensures styles persist correctly when text is inserted/deleted
-                val textDiff = newValue.text.length - oldValue.text.length
-                oldValue.annotatedString.spanStyles.forEach {
-                    val adjustedStart = (it.start + textDiff).coerceAtLeast(0)
-                    val adjustedEnd = (it.end + textDiff).coerceAtLeast(0)
-                    // Only add style if the range is valid and not empty
-                    if (adjustedStart < adjustedEnd) {
-                        builder.addStyle(it.item, adjustedStart, adjustedEnd)
-                    }
+                block.value = newValue
+            }
+            is NumberedListItemBlock -> {
+                val oldValue = block.value
+                if (oldValue != newValue) {
+                    saveStateForUndoInternal(_uiState.value.deepCopy())
                 }
-
-                val textAdded = newValue.text.length > oldValue.text.length
-                if (textAdded && _pendingStyles.value.isNotEmpty()) {
-                    // Apply pending styles to the newly typed text
-                    val start = oldValue.selection.start
-                    val end = newValue.selection.end
-                    if (start < end) { // This condition is for the selected range where new text is inserted
-                        val combinedStyle = createCombinedSpanStyle(_pendingStyles.value)
-                        builder.addStyle(combinedStyle, start, end)
-                    }
-                }
-
-                block.value = TextFieldValue(
-                    annotatedString = builder.toAnnotatedString(),
-                    selection = newValue.selection
-                )
-
-                // Clear pending styles only if they were actually applied or if text changed
-                if (textAdded || _pendingStyles.value.isNotEmpty()) {
-                    _pendingStyles.value = emptySet()
-                }
+                block.value = newValue
             }
             is CheckboxBlock -> {
-                // Kiểm tra nếu giá trị checkbox thực sự thay đổi
-                if (block.value != newValue || block.isChecked != _uiState.value.content.find { it.id == blockId }?.let { (it as? CheckboxBlock)?.isChecked } ?: false) {
-                    saveStateForUndoInternal(_uiState.value.deepCopy()) // Lưu trước khi thay đổi
+                val oldValue = block.value
+                if (oldValue != newValue || block.isChecked != _uiState.value.content.find { it.id == blockId }?.let { (it as? CheckboxBlock)?.isChecked } ?: false) {
+                    saveStateForUndoInternal(_uiState.value.deepCopy())
                     block.value = newValue
                 }
             }
@@ -237,107 +218,72 @@ class NoteViewModel : ViewModel() {
         updateUndoRedoButtons() // Cập nhật trạng thái nút sau mỗi thay đổi nội dung
     }
 
-    // Tạo SpanStyle kết hợp từ một tập hợp các Style
-    private fun createCombinedSpanStyle(styles: Set<Style>): SpanStyle {
-        var combined = SpanStyle()
-        if (styles.contains(Style.BOLD)) combined = combined.merge(SpanStyle(fontWeight = FontWeight.Bold))
-        if (styles.contains(Style.ITALIC)) combined = combined.merge(SpanStyle(fontStyle = FontStyle.Italic))
-        if (styles.contains(Style.UNDERLINE)) combined = combined.merge(SpanStyle(textDecoration = TextDecoration.Underline))
-        if (styles.contains(Style.STRIKETHROUGH)) combined = combined.merge(SpanStyle(textDecoration = TextDecoration.LineThrough))
-        return combined
+    // SỬA LỖI: Các hàm định dạng văn bản đã được cập nhật để sử dụng API mới
+    fun toggleBold() {
+        _uiState.value.currentRichTextState.toggleSpanStyle(SpanStyle(fontWeight = FontWeight.Bold))
+        val isBold = _uiState.value.currentRichTextState.currentSpanStyle.fontWeight == FontWeight.Bold
+        Log.d("Formatting", "Toggled Bold. Current isBold: $isBold")
     }
 
-    // Bật/tắt một kiểu định dạng (Bold, Italic, Underline, Strikethrough)
-    fun toggleStyle(style: Style) {
-        val focusedId = _uiState.value.focusedBlockId ?: return
-        val block = _uiState.value.content.find { it.id == focusedId } as? TextBlock ?: return
-        val selection = block.value.selection
-
-        if (!selection.collapsed) { // Nếu có văn bản được chọn
-            performUndoableAction {
-                val builder = AnnotatedString.Builder(block.value.annotatedString)
-                val existingStyles = block.value.annotatedString.spanStyles.filter {
-                    maxOf(it.start, selection.start) < minOf(it.end, selection.end)
-                }
-                val hasStyle = when (style) {
-                    Style.BOLD -> existingStyles.any { it.item.fontWeight == FontWeight.Bold }
-                    Style.ITALIC -> existingStyles.any { it.item.fontStyle == FontStyle.Italic }
-                    Style.UNDERLINE -> existingStyles.any { it.item.textDecoration?.contains(TextDecoration.Underline) == true }
-                    Style.STRIKETHROUGH -> existingStyles.any { it.item.textDecoration?.contains(TextDecoration.LineThrough) == true }
-                }
-
-                val newSpanStyle = if (hasStyle) {
-                    when (style) {
-                        Style.BOLD -> SpanStyle(fontWeight = FontWeight.Normal)
-                        Style.ITALIC -> SpanStyle(fontStyle = FontStyle.Normal)
-                        Style.UNDERLINE -> SpanStyle(textDecoration = TextDecoration.None)
-                        Style.STRIKETHROUGH -> SpanStyle(textDecoration = TextDecoration.None)
-                    }
-                } else {
-                    when (style) {
-                        Style.BOLD -> SpanStyle(fontWeight = FontWeight.Bold)
-                        Style.ITALIC -> SpanStyle(fontStyle = FontStyle.Italic)
-                        Style.UNDERLINE -> SpanStyle(textDecoration = TextDecoration.Underline)
-                        Style.STRIKETHROUGH -> SpanStyle(textDecoration = TextDecoration.LineThrough)
-                    }
-                }
-                builder.addStyle(newSpanStyle, selection.start, selection.end)
-                block.value = block.value.copy(annotatedString = builder.toAnnotatedString())
-            }
-        } else { // Nếu không có văn bản được chọn (chỉ có con trỏ)
-            val currentStyles = _pendingStyles.value
-            _pendingStyles.value = if (currentStyles.contains(style)) {
-                currentStyles - style
-            } else {
-                currentStyles + style
-            }
-            // Không cần saveStateForUndoInternal ở đây, vì pendingStyles sẽ được áp dụng khi gõ hoặc khi mất focus
-            updateUndoRedoButtons() // Cập nhật trạng thái nút
-        }
+    fun toggleItalic() {
+        _uiState.value.currentRichTextState.toggleSpanStyle(SpanStyle(fontStyle = FontStyle.Italic))
+        val isItalic = _uiState.value.currentRichTextState.currentSpanStyle.fontStyle == FontStyle.Italic
+        Log.d("Formatting", "Toggled Italic. Current isItalic: $isItalic")
     }
 
-    // Áp dụng SpanStyle cho vùng chọn
-    private fun applySpanStyleToSelection(styleToApply: SpanStyle) {
-        performUndoableAction {
-            val focusedId = _uiState.value.focusedBlockId ?: return@performUndoableAction
-            val block = _uiState.value.content.find { it.id == focusedId } as? TextBlock ?: return@performUndoableAction
-
-            val selection = block.value.selection
-            if (selection.collapsed) {
-                return@performUndoableAction
-            }
-
-            val builder = AnnotatedString.Builder(block.value.annotatedString)
-            builder.addStyle(styleToApply, selection.start, selection.end)
-
-            block.value = block.value.copy(annotatedString = builder.toAnnotatedString())
-        }
+    fun toggleUnderline() {
+        _uiState.value.currentRichTextState.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.Underline))
+        val isUnderline = _uiState.value.currentRichTextState.currentSpanStyle.textDecoration?.contains(TextDecoration.Underline) == true
+        Log.d("Formatting", "Toggled Underline. Current isUnderline: $isUnderline")
     }
 
-    // Đặt căn lề văn bản
+    fun toggleStrikethrough() {
+        _uiState.value.currentRichTextState.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.LineThrough))
+        val isStrikethrough = _uiState.value.currentRichTextState.currentSpanStyle.textDecoration?.contains(TextDecoration.LineThrough) == true
+        Log.d("Formatting", "Toggled Strikethrough. Current isStrikethrough: $isStrikethrough")
+    }
+
     fun setTextAlign(textAlign: TextAlign) {
-        performUndoableAction {
-            val focusedId = _uiState.value.focusedBlockId ?: return@performUndoableAction
-            val block = _uiState.value.content.find { it.id == focusedId } as? TextBlock ?: return@performUndoableAction
-            block.paragraphStyle = ParagraphStyle(textAlign = textAlign)
-        }
+        _uiState.value.currentRichTextState.toggleParagraphStyle(ParagraphStyle(textAlign = textAlign))
+        Log.d("Formatting", "Set TextAlign: $textAlign")
     }
 
-    // Đặt kích thước chữ
-    fun setFontSize(size: TextUnit) = applySpanStyleToSelection(SpanStyle(fontSize = size))
-    // Đặt màu chữ
-    fun setTextColor(color: Color) = applySpanStyleToSelection(SpanStyle(color = color))
-    // Đặt màu nền chữ
-    fun setTextBackgroundColor(color: Color) = applySpanStyleToSelection(SpanStyle(background = color))
-
-    // Bật/tắt kiểu danh sách (bulleted list)
-    fun toggleListStyle() {
-        performUndoableAction {
-            val focusedId = _uiState.value.focusedBlockId ?: return@performUndoableAction
-            val block = _uiState.value.content.find { it.id == focusedId } as? TextBlock ?: return@performUndoableAction
-            block.isListItem = !block.isListItem
-        }
+    fun setFontSize(size: TextUnit) {
+        _uiState.value.currentRichTextState.toggleSpanStyle(SpanStyle(fontSize = size))
+        Log.d("Formatting", "Set FontSize: ${size.value}sp")
     }
+
+    fun setTextColor(color: Color) {
+        _uiState.value.currentRichTextState.toggleSpanStyle(SpanStyle(color = color))
+        Log.d("Formatting", "Set TextColor: $color")
+    }
+
+    fun setTextBackgroundColor(color: Color) {
+        _uiState.value.currentRichTextState.toggleSpanStyle(SpanStyle(background = color))
+        Log.d("Formatting", "Set TextBackgroundColor: $color")
+    }
+
+    fun toggleBulletList() {
+        _uiState.value.currentRichTextState.toggleUnorderedList()
+        Log.d("Formatting", "Toggled Bullet List. Current isUnorderedList: ${_uiState.value.currentRichTextState.isUnorderedList}")
+    }
+
+    fun toggleNumberedList() {
+        _uiState.value.currentRichTextState.toggleOrderedList()
+        Log.d("Formatting", "Toggled Numbered List. Current isOrderedList: ${_uiState.value.currentRichTextState.isOrderedList}")
+    }
+
+//    fun indent() {
+//        // SỬA LỖI: Thay 'indent' bằng 'increaseIndent'
+//        _uiState.value.currentRichTextState.increaseIndent()
+//        Log.d("Formatting", "Indented text.")
+//    }
+//
+//    fun outdent() {
+//        // SỬA LỖI: Thay 'outdent' bằng 'decreaseIndent'
+//        _uiState.value.currentRichTextState.decreaseIndent()
+//        Log.d("Formatting", "Outdented text.")
+//    }
 
     // Xử lý thay đổi trạng thái của Checkbox
     fun onCheckboxCheckedChange(blockId: String, isChecked: Boolean) {
@@ -354,12 +300,22 @@ class NoteViewModel : ViewModel() {
             val insertionPoint = if (focusedIndex != -1) focusedIndex + 1 else state.content.size
 
             state.content.add(insertionPoint, newBlock)
-            if (newBlock !is SeparatorBlock && newBlock !is AudioBlock && newBlock !is ImageBlock) { // Thêm ImageBlock vào điều kiện này
+            // Đảm bảo có một TextBlock trống sau khi chèn nếu khối mới không phải là văn bản
+            if (newBlock !is TextBlock && newBlock !is SubHeaderBlock && newBlock !is NumberedListItemBlock && newBlock !is SeparatorBlock && newBlock !is AudioBlock && newBlock !is ImageBlock) {
                 val nextTextBlock = TextBlock()
                 state.content.add(insertionPoint + 1, nextTextBlock)
                 state.focusedBlockId = nextTextBlock.id
-            } else if (newBlock is AudioBlock || newBlock is ImageBlock) { // Cập nhật để ImageBlock cũng được focus
+            } else if (newBlock is TextBlock || newBlock is SubHeaderBlock || newBlock is NumberedListItemBlock || newBlock is AudioBlock || newBlock is ImageBlock) {
                 state.focusedBlockId = newBlock.id
+            } else {
+                // Nếu là SeparatorBlock, đặt focus về khối trước đó nếu có
+                if (focusedIndex != -1 && focusedIndex < state.content.size) {
+                    state.focusedBlockId = state.content[focusedIndex].id
+                } else if (state.content.isNotEmpty()) {
+                    state.focusedBlockId = state.content.last().id
+                } else {
+                    state.focusedBlockId = null
+                }
             }
             state.selectedImageId = null
         }
@@ -405,6 +361,7 @@ class NoteViewModel : ViewModel() {
         }
         mediaRecorder = recorder.apply {
             setAudioSource(MediaRecorder.AudioSource.MIC)
+            // SỬA LỖI: Sử dụng hằng số từ lớp MediaRecorder
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             setOutputFile(filePath)
@@ -539,6 +496,10 @@ class NoteViewModel : ViewModel() {
     fun addAccordion() = addBlockAtCursor(AccordionBlock())
     // Thêm khối Radio Group
     fun addRadioGroup() = addBlockAtCursor(RadioGroupBlock())
+    // Thêm khối SubHeader
+    fun addSectionHeader() = addBlockAtCursor(SubHeaderBlock())
+    // Thêm khối Numbered List Item
+    fun addNumberedListItem() = addBlockAtCursor(NumberedListItemBlock())
 
     // Xử lý click vào ảnh
     fun onImageClick(imageId: String) {
@@ -620,19 +581,6 @@ class NoteViewModel : ViewModel() {
     // Mở ảnh trong thư viện (logic placeholder)
     fun openImageInGallery(blockId: String) {
         Log.d("NoteViewModel", "Opening image with ID: $blockId in gallery (Placeholder)")
-        // Trong một ứng dụng thực tế, bạn sẽ tạo một Intent để mở ảnh bằng ứng dụng thư viện
-        // val uri = (_uiState.value.content.find { it.id == blockId } as? ImageBlock)?.uri
-        // uri?.let {
-        //     val intent = Intent(Intent.ACTION_VIEW).apply {
-        //         setDataAndType(it, "image/*")
-        //         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        //     }
-        //     if (intent.resolveActivity(context.packageManager) != null) {
-        //         context.startActivity(intent)
-        //     } else {
-        //         Log.e("NoteViewModel", "No app found to open image.")
-        //     }
-        // }
     }
 
     // Đặt tiêu điểm vào một khối
@@ -647,7 +595,14 @@ class NoteViewModel : ViewModel() {
             // Khi đặt focus vào một khối, đảm bảo không có ảnh nào đang được chọn hoặc vẽ
             state.selectedImageId = null
             state.drawingImageId = null
-            _pendingStyles.value = emptySet()
+
+            // Cập nhật currentRichTextState khi focus thay đổi
+            if (blockId != null) {
+                val focusedBlock = state.content.find { it.id == blockId }
+                if (focusedBlock is TextBlock) {
+                    state.currentRichTextState = focusedBlock.value
+                }
+            }
         }
         updateUndoRedoButtons() // Cập nhật trạng thái nút khi tiêu điểm thay đổi
     }

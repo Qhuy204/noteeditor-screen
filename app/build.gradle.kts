@@ -38,6 +38,9 @@ android {
         compose = true
         shaders = true
     }
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.13"
+    }
 }
 
 dependencies {
@@ -63,4 +66,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.0")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("com.github.squti:Android-Wave-Recorder:1.7.0")
+    implementation("com.mohamedrejeb.richeditor:richeditor-compose:1.0.0-rc13")
+
 }

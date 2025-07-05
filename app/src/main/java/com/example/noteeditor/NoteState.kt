@@ -1,3 +1,4 @@
+// File: NoteState.kt
 package com.example.noteeditor
 
 import android.net.Uri
@@ -9,9 +10,17 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 import com.example.noteeditor.composables.Style // Import Style enum
 import java.text.SimpleDateFormat
 import java.util.*
+import com.mohamedrejeb.richeditor.model.RichTextState // Import RichTextState
+import com.mohamedrejeb.richeditor.model.rememberRichTextState // Import rememberRichTextState
 
 // --- STATE CLASSES ---
 
@@ -23,20 +32,65 @@ sealed class ContentBlock(val id: String = UUID.randomUUID().toString()) {
 
 @Stable
 class TextBlock(
-    initialValue: TextFieldValue = TextFieldValue(AnnotatedString("")),
+    // Thay đổi TextFieldValue thành RichTextState
+    initialValue: RichTextState = RichTextState(),
     initialParagraphStyle: ParagraphStyle = ParagraphStyle(textAlign = TextAlign.Start),
     initialIsListItem: Boolean = false,
     id: String = UUID.randomUUID().toString() // Thêm id vào constructor và truyền lên lớp cha
 ) : ContentBlock(id) {
+    // Sử dụng @delegate:Transient để RichTextState không được lưu trữ trực tiếp trong SnapshotStateList
+    // và được khởi tạo lại khi deepCopy, tránh lỗi serialization/deserialization phức tạp.
+    // Thay vào đó, chúng ta sẽ sao chép nội dung HTML của nó.
+    @delegate:Transient
     var value by mutableStateOf(initialValue)
     var paragraphStyle by mutableStateOf(initialParagraphStyle)
     var isListItem by mutableStateOf(initialIsListItem)
 
+    // Thêm một thuộc tính để lưu trữ nội dung HTML khi sao chép/khôi phục trạng thái
+    var htmlContent: String
+        get() = value.toHtml()
+        set(newHtml) {
+            value.setHtml(newHtml)
+        }
+
     override fun deepCopy(): ContentBlock {
         // Truyền id của khối hiện tại vào bản sao sâu
-        return TextBlock(value, paragraphStyle, isListItem, id)
+        val newState = RichTextState()
+        newState.setHtml(this.value.toHtml()) // Sao chép nội dung HTML
+        return TextBlock(newState, paragraphStyle, isListItem, id)
     }
 }
+
+@Stable
+class SubHeaderBlock(
+    initialValue: TextFieldValue = TextFieldValue(AnnotatedString("")),
+    initialParagraphStyle: ParagraphStyle = ParagraphStyle(textAlign = TextAlign.Start),
+    initialSpanStyle: SpanStyle = SpanStyle(fontWeight = FontWeight.Bold, fontSize = 20.sp),
+    id: String = UUID.randomUUID().toString()
+) : ContentBlock(id) {
+    var value by mutableStateOf(initialValue)
+    var paragraphStyle by mutableStateOf(initialParagraphStyle)
+    var spanStyle by mutableStateOf(initialSpanStyle)
+
+    override fun deepCopy(): ContentBlock {
+        return SubHeaderBlock(value, paragraphStyle, spanStyle, id)
+    }
+}
+
+@Stable
+class NumberedListItemBlock(
+    initialValue: TextFieldValue = TextFieldValue(AnnotatedString("")),
+    initialParagraphStyle: ParagraphStyle = ParagraphStyle(textAlign = TextAlign.Start),
+    id: String = UUID.randomUUID().toString()
+) : ContentBlock(id) {
+    var value by mutableStateOf(initialValue)
+    var paragraphStyle by mutableStateOf(initialParagraphStyle)
+
+    override fun deepCopy(): ContentBlock {
+        return NumberedListItemBlock(value, paragraphStyle, id)
+    }
+}
+
 
 @Stable
 class ImageBlock(val uri: Uri, initialDescription: String = "", initialIsResized: Boolean = false, id: String = UUID.randomUUID().toString()) : ContentBlock(id) {
@@ -110,7 +164,8 @@ class NoteState {
     var selectedImageId by mutableStateOf<String?>(null)
     var focusedBlockId by mutableStateOf<String?>(null)
     var isTextFormatToolbarVisible by mutableStateOf(false)
-    var activeStyles by mutableStateOf<Set<Style>>(emptySet())
+    // activeStyles không còn cần thiết nếu RichTextState quản lý style
+    // var activeStyles by mutableStateOf<Set<Style>>(emptySet())
     val date: String = SimpleDateFormat("EEEE, MMMM d,yyyy", Locale.getDefault()).format(Date())
     var category by mutableStateOf("Chưa phân loại")
     var isRecordingActive by mutableStateOf(false)
@@ -122,6 +177,11 @@ class NoteState {
 
     // [MỚI] Trạng thái cho tính năng vẽ trên ảnh
     var drawingImageId by mutableStateOf<String?>(null)
+
+    // [MỚI] Thêm RichTextState cho khối văn bản đang được focus
+    // Đây là transient vì nó sẽ được khởi tạo lại và liên kết khi focus thay đổi
+    @delegate:Transient
+    var currentRichTextState by mutableStateOf(RichTextState())
 
 
     fun deepCopy(): NoteState {
@@ -145,6 +205,9 @@ class NoteState {
         new.draggingBlockId = this.draggingBlockId // Sao chép trạng thái kéo
         new.dropTargetIndex = this.dropTargetIndex // Sao chép trạng thái vị trí thả
         new.drawingImageId = this.drawingImageId // Sao chép trạng thái vẽ
+
+        // currentRichTextState không được sao chép trực tiếp, nó sẽ được cập nhật khi focus thay đổi
+        // new.currentRichTextState = this.currentRichTextState // KHÔNG SAO CHÉP TRỰC TIẾP
         return new
     }
 
@@ -177,10 +240,11 @@ class NoteState {
                         Log.d("ContentEqual", "TextBlock: Type mismatch at index $i.")
                         return false
                     }
-                    if (thisBlock.value != otherBlock.value) {
-                        Log.d("ContentEqual", "TextBlock: Value changed at index $i. This: '${thisBlock.value.text}', Other: '${otherBlock.value.text}'")
-                        Log.d("ContentEqual", "This selection: ${thisBlock.value.selection}, Other selection: ${otherBlock.value.selection}")
-                        Log.d("ContentEqual", "This spanStyles size: ${thisBlock.value.annotatedString.spanStyles.size}, Other spanStyles size: ${otherBlock.value.annotatedString.spanStyles.size}")
+                    // So sánh nội dung HTML thay vì TextFieldValue
+                    if (thisBlock.htmlContent != otherBlock.htmlContent) {
+                        Log.d("ContentEqual", "TextBlock: HTML content changed at index $i.")
+                        Log.d("ContentEqual", "This HTML: '${thisBlock.htmlContent}'")
+                        Log.d("ContentEqual", "Other HTML: '${otherBlock.htmlContent}'")
                         return false
                     }
                     if (thisBlock.paragraphStyle != otherBlock.paragraphStyle) {
@@ -189,6 +253,18 @@ class NoteState {
                     }
                     if (thisBlock.isListItem != otherBlock.isListItem) {
                         Log.d("ContentEqual", "TextBlock: List item status changed at index $i.")
+                        return false
+                    }
+                }
+                is SubHeaderBlock -> {
+                    if (otherBlock !is SubHeaderBlock || thisBlock.value != otherBlock.value || thisBlock.paragraphStyle != otherBlock.paragraphStyle || thisBlock.spanStyle != otherBlock.spanStyle) {
+                        Log.d("ContentEqual", "SubHeaderBlock: Properties changed at index $i.")
+                        return false
+                    }
+                }
+                is NumberedListItemBlock -> {
+                    if (otherBlock !is NumberedListItemBlock || thisBlock.value != otherBlock.value || thisBlock.paragraphStyle != otherBlock.paragraphStyle) {
+                        Log.d("ContentEqual", "NumberedListItemBlock: Properties changed at index $i.")
                         return false
                     }
                 }

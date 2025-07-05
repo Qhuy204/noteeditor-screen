@@ -24,13 +24,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.noteeditor.composables.glassmorphism
+import com.mohamedrejeb.richeditor.model.RichTextState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,11 +83,17 @@ fun TransformingBottomToolbar(
     isKeyboardVisible: Boolean,
     // --- Text Formatting ---
     isFormattingMode: Boolean,
-    activeStyles: Set<Style>,
+    richTextState: RichTextState, // Truyền RichTextState thay vì activeStyles
     onToggleFormattingMode: () -> Unit,
-    onStyleChange: (Style) -> Unit,
+    onToggleBold: () -> Unit,
+    onToggleItalic: () -> Unit,
+    onToggleUnderline: () -> Unit,
+    onToggleStrikethrough: () -> Unit,
     onTextAlignChange: (TextAlign) -> Unit,
-    onListStyleChange: () -> Unit,
+    onToggleBulletList: () -> Unit, // Đổi tên để rõ ràng hơn
+    onToggleNumberedList: () -> Unit, // Đổi tên để rõ ràng hơn
+//    onIndent: () -> Unit, // Thêm indent
+//    onOutdent: () -> Unit, // Thêm outdent
     onFontSizeChange: (TextUnit) -> Unit,
     onTextColorChange: (Color) -> Unit,
     onTextBgColorChange: (Color) -> Unit,
@@ -152,10 +161,16 @@ fun TransformingBottomToolbar(
                     if (isFormatting) {
                         FormattingToolbarContent(
                             modifier = glassModifier,
-                            activeStyles = activeStyles,
-                            onStyleChange = onStyleChange,
+                            richTextState = richTextState, // Truyền RichTextState
+                            onToggleBold = onToggleBold,
+                            onToggleItalic = onToggleItalic,
+                            onToggleUnderline = onToggleUnderline,
+                            onToggleStrikethrough = onToggleStrikethrough,
                             onTextAlignChange = onTextAlignChange,
-                            onListStyleChange = onListStyleChange,
+                            onToggleBulletList = onToggleBulletList,
+                            onToggleNumberedList = onToggleNumberedList,
+//                            onIndent = onIndent,
+//                            onOutdent = onOutdent,
                             onAddSeparator = onAddSeparator,
                             onClose = onToggleFormattingMode,
                             onFontSizeChange = onFontSizeChange,
@@ -270,11 +285,17 @@ private fun MainToolbarContent(
 @Composable
 private fun FormattingToolbarContent(
     modifier: Modifier = Modifier,
-    activeStyles: Set<Style>,
+    richTextState: RichTextState, // Nhận RichTextState
     onClose: () -> Unit,
-    onStyleChange: (Style) -> Unit,
+    onToggleBold: () -> Unit,
+    onToggleItalic: () -> Unit,
+    onToggleUnderline: () -> Unit,
+    onToggleStrikethrough: () -> Unit,
     onTextAlignChange: (TextAlign) -> Unit,
-    onListStyleChange: () -> Unit,
+    onToggleBulletList: () -> Unit,
+    onToggleNumberedList: () -> Unit,
+//    onIndent: () -> Unit,
+//    onOutdent: () -> Unit,
     onAddSeparator: () -> Unit,
     onFontSizeChange: (TextUnit) -> Unit,
     onTextColorChange: (Color) -> Unit,
@@ -287,24 +308,29 @@ private fun FormattingToolbarContent(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val rotation by animateFloatAsState(targetValue = 360f, animationSpec = tween(400), label = "CloseIconRotation")
+        val rotation by animateFloatAsState(targetValue = if (LocalInspectionMode.current) 0f else 360f, animationSpec = tween(400), label = "CloseIconRotation")
         ToolbarIconButton(icon = Icons.Default.Close, contentDescription = "Close Formatting", onClick = onClose, modifier = Modifier.rotate(rotation))
         VerticalDivider()
-        ToolbarIconButton(icon = Icons.Default.FormatBold, "Bold", onClick = { onStyleChange(Style.BOLD) }, isToggled = activeStyles.contains(Style.BOLD))
-        ToolbarIconButton(icon = Icons.Default.FormatItalic, "Italic", onClick = { onStyleChange(Style.ITALIC) }, isToggled = activeStyles.contains(Style.ITALIC))
-        ToolbarIconButton(icon = Icons.Default.FormatUnderlined, "Underline", onClick = { onStyleChange(Style.UNDERLINE) }, isToggled = activeStyles.contains(Style.UNDERLINE))
-        ToolbarIconButton(icon = Icons.Default.FormatStrikethrough, "Strikethrough", onClick = { onStyleChange(Style.STRIKETHROUGH) }, isToggled = activeStyles.contains(Style.STRIKETHROUGH))
+        // SỬA LỖI: Cập nhật cách kiểm tra trạng thái style
+        ToolbarIconButton(icon = Icons.Default.FormatBold, "Bold", onClick = onToggleBold, isToggled = richTextState.currentSpanStyle.fontWeight == FontWeight.Bold)
+        ToolbarIconButton(icon = Icons.Default.FormatItalic, "Italic", onClick = onToggleItalic, isToggled = richTextState.currentSpanStyle.fontStyle == FontStyle.Italic)
+        ToolbarIconButton(icon = Icons.Default.FormatUnderlined, "Underline", onClick = onToggleUnderline, isToggled = richTextState.currentSpanStyle.textDecoration?.contains(TextDecoration.Underline) == true)
+        ToolbarIconButton(icon = Icons.Default.FormatStrikethrough, "Strikethrough", onClick = onToggleStrikethrough, isToggled = richTextState.currentSpanStyle.textDecoration?.contains(TextDecoration.LineThrough) == true)
         VerticalDivider()
         FontSizeSelector(onFontSizeChange = onFontSizeChange)
         VerticalDivider()
         ColorSelector(icon = Icons.Default.FormatColorText, onColorSelected = onTextColorChange)
         ColorSelector(icon = Icons.Default.FormatColorFill, onColorSelected = onTextBgColorChange)
         VerticalDivider()
-        ToolbarIconButton(icon = Icons.AutoMirrored.Filled.FormatAlignLeft, "Align Left", onClick = { onTextAlignChange(TextAlign.Start) })
-        ToolbarIconButton(icon = Icons.Default.FormatAlignCenter, "Align Center", onClick = { onTextAlignChange(TextAlign.Center) })
-        ToolbarIconButton(icon = Icons.AutoMirrored.Filled.FormatAlignRight, "Align Right", onClick = { onTextAlignChange(TextAlign.End) })
+        // SỬA LỖI: Cập nhật cách kiểm tra căn lề
+        ToolbarIconButton(icon = Icons.AutoMirrored.Filled.FormatAlignLeft, "Align Left", onClick = { onTextAlignChange(TextAlign.Start) }, isToggled = richTextState.currentParagraphStyle.textAlign == TextAlign.Start)
+        ToolbarIconButton(icon = Icons.Default.FormatAlignCenter, "Align Center", onClick = { onTextAlignChange(TextAlign.Center) }, isToggled = richTextState.currentParagraphStyle.textAlign == TextAlign.Center)
+        ToolbarIconButton(icon = Icons.AutoMirrored.Filled.FormatAlignRight, "Align Right", onClick = { onTextAlignChange(TextAlign.End) }, isToggled = richTextState.currentParagraphStyle.textAlign == TextAlign.End)
         VerticalDivider()
-        ToolbarIconButton(icon = Icons.Default.FormatListBulleted, "Bulleted List", onClick = onListStyleChange)
+        ToolbarIconButton(icon = Icons.Default.FormatListBulleted, "Bulleted List", onClick = onToggleBulletList, isToggled = richTextState.isUnorderedList)
+        ToolbarIconButton(icon = Icons.Default.FormatListNumbered, "Numbered List", onClick = onToggleNumberedList, isToggled = richTextState.isOrderedList)
+//        ToolbarIconButton(icon = Icons.Default.FormatIndentIncrease, "Tab", onClick = onIndent)
+//        ToolbarIconButton(icon = Icons.Default.FormatIndentDecrease, "Undo Tab", onClick = onOutdent)
         ToolbarIconButton(icon = Icons.Default.HorizontalRule, "Separator", onClick = onAddSeparator)
     }
 }
