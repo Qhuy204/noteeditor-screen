@@ -64,7 +64,6 @@ fun TextBlockComposable(
         unfocusedBorderColor = Color(0xFFFFFFFF),
     )
 
-
     // Lắng nghe nội dung thay đổi của richTextState và gửi về ViewModel dưới dạng HTML
     LaunchedEffect(richTextState) {
         snapshotFlow { richTextState.toHtml() }
