@@ -2,6 +2,7 @@ package com.example.noteeditor
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.util.Log
@@ -76,6 +77,14 @@ fun NoteEditorScreen(
         }
     }
 
+    // [MỚI] Launcher để mở ảnh trong thư viện
+    val openImageInGalleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        // Không cần xử lý kết quả ở đây vì chỉ mở ứng dụng khác
+        Log.d("NoteEditorScreen", "Attempted to open image in gallery. Result: ${result.resultCode}")
+    }
+
     LaunchedEffect(Unit) {
         Log.d("NoteEditorDebug", "NoteEditorScreen recomposed.")
     }
@@ -83,9 +92,10 @@ fun NoteEditorScreen(
     LaunchedEffect(isKeyboardVisible) {
         Log.d("NoteEditorScreen", "Keyboard visibility changed: $isKeyboardVisible")
         if (!isKeyboardVisible) {
-            viewModel.onImageClick("")
+            viewModel.onImageClick("") // Bỏ chọn ảnh khi bàn phím ẩn
             viewModel.stopPlaying()
-            Log.d("NoteEditorScreen", "Keyboard hidden. Cleared image selection and stopped audio.")
+            viewModel.toggleDrawingMode(null) // Tắt chế độ vẽ khi bàn phím ẩn
+            Log.d("NoteEditorScreen", "Keyboard hidden. Cleared image selection, stopped audio, and exited drawing mode.")
         }
     }
 
@@ -422,7 +432,10 @@ fun NoteEditorScreen(
                                 }
                             }
                         )
-                        is ImageBlock -> ImageBlockComposable(block, uiState.selectedImageId == block.id,
+                        is ImageBlock -> ImageBlockComposable(
+                            block,
+                            isSelected = uiState.selectedImageId == block.id,
+                            isDrawing = uiState.drawingImageId == block.id, // Truyền trạng thái vẽ
                             onImageClick = {
                                 viewModel.onImageClick(block.id)
                                 focusManager.clearFocus()
@@ -439,6 +452,29 @@ fun NoteEditorScreen(
                             onDescriptionChange = { newDesc ->
                                 viewModel.updateImageDescription(block.id, newDesc)
                                 Log.d("NoteEditorScreen", "Updated description for ImageBlock ${block.id}: $newDesc")
+                            },
+                            onDraw = { imageIdToDraw -> // Callback để bật/tắt chế độ vẽ
+                                viewModel.toggleDrawingMode(imageIdToDraw)
+                                Log.d("NoteEditorScreen", "Toggled drawing mode for ImageBlock ${block.id}. New state: $imageIdToDraw")
+                            },
+                            onCopy = { imageIdToCopy -> // Callback copy ảnh
+                                viewModel.copyImage(imageIdToCopy)
+                                Log.d("NoteEditorScreen", "Copied ImageBlock: $imageIdToCopy")
+                            },
+                            onOpenInGallery = { imageIdToOpen -> // Callback mở ảnh trong thư viện
+                                val imageBlock = uiState.content.find { it.id == imageIdToOpen } as? ImageBlock
+                                imageBlock?.uri?.let { uri ->
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(uri, "image/*")
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    if (intent.resolveActivity(context.packageManager) != null) {
+                                        openImageInGalleryLauncher.launch(intent)
+                                        Log.d("NoteEditorScreen", "Opened ImageBlock ${block.id} in gallery: $uri")
+                                    } else {
+                                        Log.e("NoteEditorScreen", "No app found to open image for ID: $imageIdToOpen")
+                                    }
+                                }
                             }
                         )
                         is CheckboxBlock -> CheckboxBlockComposable(block,

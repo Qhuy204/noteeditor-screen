@@ -1,13 +1,18 @@
 package com.example.noteeditor.composables
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -19,9 +24,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusState
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle as ComposeTextStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
@@ -29,19 +40,12 @@ import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest // Import mới
 import coil.size.OriginalSize // Import mới
-import androidx.compose.ui.platform.LocalContext // Import mới
+import androidx.compose.ui.input.pointer.pointerInput // Import cần thiết cho pointerInput
+import androidx.compose.ui.input.pointer.PointerInputChange // Import cần thiết cho PointerInputChange
+import androidx.compose.ui.ExperimentalComposeUiApi // Annotation cần thiết
 import com.example.noteeditor.* // Import all classes from noteeditor package
 import java.util.concurrent.TimeUnit // Import TimeUnit for duration formatting
 
-/**
- * [ĐÃ SỬA LẦN 2] Cấu trúc lại Composable để căn lề hoạt động chính xác.
- *
- * Vấn đề trước đây là vùng soạn thảo bên trong (`innerTextField`) không được cấp đủ chiều rộng.
- * Giải pháp này đặt toàn bộ layout (bao gồm dấu đầu dòng và vùng nhập liệu) vào trong `decorationBox`.
- * `BasicTextField` được set `fillMaxWidth()` để đảm bảo `decorationBox` có không gian để phân phối.
- * Bên trong `decorationBox`, một `Row` được sử dụng. Vùng nhập liệu (`innerTextField`) được đặt trong một `Box`
- * với `Modifier.weight(1f)`, đảm bảo nó chiếm hết không gian còn lại, cho phép `textAlign` hoạt động đúng.
- */
 @Composable
 fun TextBlockComposable(
     block: TextBlock,
@@ -98,75 +102,93 @@ fun TextBlockComposable(
 fun ImageBlockComposable(
     block: ImageBlock,
     isSelected: Boolean,
+    isDrawing: Boolean, // [MỚI] Trạng thái đang vẽ
     onImageClick: () -> Unit,
     onResize: () -> Unit,
     onDelete: () -> Unit,
-    onDescriptionChange: (String) -> Unit
+    onDescriptionChange: (String) -> Unit,
+    onDraw: (String?) -> Unit, // [MỚI] Callback để bật/tắt chế độ vẽ
+    onCopy: (String) -> Unit, // [MỚI] Callback để copy ảnh
+    onOpenInGallery: (String) -> Unit // [MỚI] Callback để mở ảnh trong thư viện
 ) {
-    val imageSizeFraction = if (block.isResized) 0.5f else 1f
+    val targetImageSizeFraction = if (block.isResized) 0.5f else 1f
+    val animatedImageSizeFraction by animateFloatAsState(
+        targetValue = targetImageSizeFraction,
+        animationSpec = tween(durationMillis = 300) // Animation mượt mà
+    )
     var isDescriptionVisible by remember { mutableStateOf(false) }
     val context = LocalContext.current // Lấy context cho ImageRequest
+
+    // Declare imageAspectRatio here, outside the painter block, but within the Composable's scope
+    val painter = rememberAsyncImagePainter(
+        model = ImageRequest.Builder(context)
+            .data(block.uri)
+            .size(OriginalSize)
+            .build()
+    )
+    val imageAspectRatio = with(painter.intrinsicSize) {
+        if (isSpecified && height != 0f) width / height else 16f / 9f
+    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        // Căn trái khi ảnh thu nhỏ, căn giữa khi ảnh 100%
+        horizontalAlignment = if (block.isResized) Alignment.Start else Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth(imageSizeFraction)
+                .fillMaxWidth(animatedImageSizeFraction) // Sử dụng giá trị animation
                 .clip(RoundedCornerShape(12.dp))
                 .clickable { onImageClick() }
                 .then(
-                    if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
+                    if (isSelected) Modifier.border(2.dp, Color(0xFFFF9800), RoundedCornerShape(12.dp)) // Viền cam
                     else Modifier
                 )
         ) {
-            // [CẬP NHẬT] Sử dụng ImageRequest với OriginalSize để giữ nguyên chất lượng ảnh
-            val painter = rememberAsyncImagePainter(
-                model = ImageRequest.Builder(context) // Sử dụng LocalContext
-                    .data(block.uri)
-                    .size(OriginalSize) // Yêu cầu tải ảnh với kích thước gốc
-                    .build()
-            )
-            val aspectRatio = with(painter.intrinsicSize) {
-                if (isSpecified && height != 0f) width / height else 16f / 9f
-            }
-
             Image(
                 painter = painter,
                 contentDescription = block.description,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(aspectRatio),
+                    .aspectRatio(imageAspectRatio), // Sử dụng biến đã đổi tên
                 contentScale = ContentScale.Fit // Giữ nguyên chất lượng ảnh
             )
 
-            if (isSelected) {
+            if (isSelected && !isDrawing) { // Chỉ hiện menu khi được chọn và không đang vẽ
                 ImageActionMenu(
                     isResized = block.isResized,
                     onDescribe = { isDescriptionVisible = !isDescriptionVisible },
-                    onDraw = { /* TODO: Mở màn hình vẽ */ },
+                    onDraw = { onDraw(block.id) }, // Bật chế độ vẽ cho ảnh này
                     onResize = onResize,
-                    onCopy = { /* TODO: Copy ảnh vào clipboard */ },
+                    onCopy = { onCopy(block.id) },
+                    onOpenInGallery = { onOpenInGallery(block.id) },
                     onDelete = onDelete
                 )
             }
         }
+
+        // Editor mô tả ảnh
         AnimatedVisibility(visible = isDescriptionVisible || block.description.isNotEmpty()) {
-            OutlinedTextField(
-                value = block.description,
-                onValueChange = onDescriptionChange,
+            ImageDescriptionEditor(
+                description = block.description,
+                onDescriptionChange = onDescriptionChange,
                 modifier = Modifier
-                    .fillMaxWidth(imageSizeFraction)
-                    .padding(top = 4.dp),
-                placeholder = { Text("Nhập mô tả ảnh...") },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color.Gray,
-                    unfocusedBorderColor = Color.LightGray
-                ),
-                shape = RoundedCornerShape(8.dp)
+                    .fillMaxWidth(animatedImageSizeFraction) // Kích thước theo ảnh
+                    .padding(top = 4.dp)
+            )
+        }
+
+        // Canvas vẽ trên ảnh
+        AnimatedVisibility(visible = isDrawing) {
+            ImageDrawingCanvas(
+                modifier = Modifier
+                    .fillMaxWidth(animatedImageSizeFraction) // Kích thước theo ảnh
+                    .aspectRatio(imageAspectRatio) // Sử dụng biến đã đổi tên
+                    .padding(top = 4.dp)
+                    .border(1.dp, Color.LightGray, RoundedCornerShape(8.dp)),
+                onCloseDrawing = { onDraw(null) } // Tắt chế độ vẽ
             )
         }
     }
@@ -175,7 +197,7 @@ fun ImageBlockComposable(
 @Composable
 fun BoxScope.ImageActionMenu(
     isResized: Boolean, onDescribe: () -> Unit, onDraw: () -> Unit,
-    onResize: () -> Unit, onCopy: () -> Unit, onDelete: () -> Unit
+    onResize: () -> Unit, onCopy: () -> Unit, onOpenInGallery: () -> Unit, onDelete: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -193,9 +215,165 @@ fun BoxScope.ImageActionMenu(
             Icon(if(isResized) Icons.Default.ZoomInMap else Icons.Default.ZoomOutMap, "Resize", tint = iconColor)
         }
         IconButton(onClick = onCopy) { Icon(Icons.Default.ContentCopy, "Copy", tint = iconColor) }
+        IconButton(onClick = onOpenInGallery) { Icon(Icons.Default.PhotoLibrary, "Open in Gallery", tint = iconColor) }
         IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Delete", tint = iconColor) }
     }
 }
+
+@Composable
+fun ImageDescriptionEditor(
+    description: String,
+    onDescriptionChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = description,
+        onValueChange = onDescriptionChange,
+        modifier = modifier,
+        placeholder = { Text("Nhập mô tả ảnh...") },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = Color.Gray,
+            unfocusedBorderColor = Color.LightGray
+        ),
+        shape = RoundedCornerShape(8.dp),
+        singleLine = false,
+        maxLines = 3
+    )
+}
+
+@OptIn(ExperimentalComposeUiApi::class) // Thêm annotation này
+@Composable
+fun ImageDrawingCanvas(
+    modifier: Modifier = Modifier,
+    onCloseDrawing: () -> Unit
+) {
+    var path by remember { mutableStateOf(Path()) }
+    var currentPathColor by remember { mutableStateOf(Color.Red) }
+    var currentStrokeWidth by remember { mutableStateOf(5f) }
+
+    Column(modifier = modifier) {
+        // Drawing tools toolbar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.LightGray.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Color picker
+            ColorPickerButton(currentColor = currentPathColor) { color ->
+                currentPathColor = color
+            }
+
+            // Stroke width picker
+            StrokeWidthPickerButton(currentStrokeWidth = currentStrokeWidth) { width ->
+                currentStrokeWidth = width
+            }
+
+            // Clear button
+            IconButton(onClick = { path = Path() }) {
+                Icon(Icons.Default.Clear, "Clear Drawing", tint = Color.Black)
+            }
+
+            // Close button
+            IconButton(onClick = onCloseDrawing) {
+                Icon(Icons.Default.Done, "Done Drawing", tint = Color.Black)
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // Drawing Canvas
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f) // Chiếm phần còn lại của không gian
+                .background(Color.White)
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            path.moveTo(offset.x, offset.y)
+                        },
+                        onDragEnd = {
+                            // Optionally save the path or convert to image
+                        },
+                        onDragCancel = {
+                            // Handle cancel
+                        },
+                        onDrag = { change: PointerInputChange, dragAmount: Offset -> // Chỉ định rõ kiểu cho change và dragAmount
+                            change.consume() // Sử dụng consume() từ PointerInputChange
+                            path.lineTo(change.position.x, change.position.y)
+                        }
+                    )
+                }
+        ) {
+            drawPath(
+                path = path,
+                color = currentPathColor,
+                style = Stroke(width = currentStrokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+        }
+    }
+}
+
+@Composable
+fun ColorPickerButton(currentColor: Color, onColorSelected: (Color) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val colors = listOf(Color.Red, Color.Blue, Color.Green, Color.Black, Color.White, Color.Yellow)
+
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(Icons.Default.Palette, "Select Color", tint = currentColor)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            Row(modifier = Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                colors.forEach { color ->
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(color)
+                            .clickable {
+                                onColorSelected(color)
+                                expanded = false
+                            }
+                            .border(1.dp, Color.LightGray, CircleShape)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StrokeWidthPickerButton(currentStrokeWidth: Float, onWidthSelected: (Float) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val widths = listOf(2f, 5f, 10f, 15f)
+
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(Icons.Default.LineWeight, "Select Stroke Width", tint = Color.Black)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            Column(modifier = Modifier.padding(8.dp)) {
+                widths.forEach { width ->
+                    Text(
+                        text = width.toInt().toString(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onWidthSelected(width)
+                                expanded = false
+                            }
+                            .padding(vertical = 4.dp, horizontal = 8.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 
 @Composable
 fun CheckboxBlockComposable(

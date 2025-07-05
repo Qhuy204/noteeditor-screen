@@ -41,7 +41,7 @@ class TextBlock(
 @Stable
 class ImageBlock(val uri: Uri, initialDescription: String = "", initialIsResized: Boolean = false, id: String = UUID.randomUUID().toString()) : ContentBlock(id) {
     var description by mutableStateOf(initialDescription)
-    var isResized by mutableStateOf(initialIsResized)
+    var isResized by mutableStateOf(initialIsResized) // true = 25%, false = 100%
     override fun deepCopy(): ContentBlock = ImageBlock(uri, description, isResized, id)
 }
 
@@ -120,6 +120,9 @@ class NoteState {
     var draggingBlockId by mutableStateOf<String?>(null)
     var dropTargetIndex by mutableStateOf<Int?>(null)
 
+    // [MỚI] Trạng thái cho tính năng vẽ trên ảnh
+    var drawingImageId by mutableStateOf<String?>(null)
+
 
     fun deepCopy(): NoteState {
         val new = NoteState()
@@ -141,6 +144,7 @@ class NoteState {
         new.currentRecordingAudioBlock = this.currentRecordingAudioBlock?.deepCopy() as? AudioBlock
         new.draggingBlockId = this.draggingBlockId // Sao chép trạng thái kéo
         new.dropTargetIndex = this.dropTargetIndex // Sao chép trạng thái vị trí thả
+        new.drawingImageId = this.drawingImageId // Sao chép trạng thái vẽ
         return new
     }
 

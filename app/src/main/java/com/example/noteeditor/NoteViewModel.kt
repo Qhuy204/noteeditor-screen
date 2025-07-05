@@ -352,11 +352,11 @@ class NoteViewModel : ViewModel() {
             val insertionPoint = if (focusedIndex != -1) focusedIndex + 1 else state.content.size
 
             state.content.add(insertionPoint, newBlock)
-            if (newBlock !is SeparatorBlock && newBlock !is AudioBlock) {
+            if (newBlock !is SeparatorBlock && newBlock !is AudioBlock && newBlock !is ImageBlock) { // Thêm ImageBlock vào điều kiện này
                 val nextTextBlock = TextBlock()
                 state.content.add(insertionPoint + 1, nextTextBlock)
                 state.focusedBlockId = nextTextBlock.id
-            } else if (newBlock is AudioBlock) {
+            } else if (newBlock is AudioBlock || newBlock is ImageBlock) { // Cập nhật để ImageBlock cũng được focus
                 state.focusedBlockId = newBlock.id
             }
             state.selectedImageId = null
@@ -542,6 +542,7 @@ class NoteViewModel : ViewModel() {
     fun onImageClick(imageId: String) {
         val state = _uiState.value
         state.selectedImageId = if (state.selectedImageId == imageId) null else imageId
+        // Khi chọn hoặc bỏ chọn ảnh, đảm bảo không có khối văn bản nào đang được focus
         setFocus(null)
     }
 
@@ -561,6 +562,10 @@ class NoteViewModel : ViewModel() {
             _uiState.value.content.removeAll { it.id == blockId }
             if (_uiState.value.selectedImageId == blockId) {
                 _uiState.value.selectedImageId = null
+            }
+            // Nếu khối bị xóa là khối đang vẽ, đặt lại trạng thái vẽ
+            if (_uiState.value.drawingImageId == blockId) {
+                _uiState.value.drawingImageId = null
             }
         }
     }
@@ -582,6 +587,52 @@ class NoteViewModel : ViewModel() {
         (_uiState.value.content.find { it.id == blockId } as? ImageBlock)?.description = description
     }
 
+    // Bật/tắt chế độ vẽ trên ảnh
+    fun toggleDrawingMode(imageId: String?) {
+        _uiState.update { currentState ->
+            currentState.deepCopy().apply {
+                drawingImageId = if (drawingImageId == imageId) null else imageId
+                // Đảm bảo không có ảnh nào được chọn khi đang vẽ
+                if (drawingImageId != null) {
+                    selectedImageId = null
+                }
+            }
+        }
+    }
+
+    // Copy ảnh (logic placeholder)
+    fun copyImage(blockId: String) {
+        Log.d("NoteViewModel", "Copying image with ID: $blockId (Placeholder)")
+        // Trong một ứng dụng thực tế, bạn sẽ copy Uri của ảnh vào clipboard
+        // hoặc copy bitmap của ảnh. Việc này yêu cầu Context và các API Android.
+        // Ví dụ:
+        // val uri = (_uiState.value.content.find { it.id == blockId } as? ImageBlock)?.uri
+        // uri?.let {
+        //     val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        //     val clipData = ClipData.newUri(context.contentResolver, "Image", it)
+        //     clipboardManager.setPrimaryClip(clipData)
+        //     Log.d("NoteViewModel", "Image URI copied to clipboard: $it")
+        // }
+    }
+
+    // Mở ảnh trong thư viện (logic placeholder)
+    fun openImageInGallery(blockId: String) {
+        Log.d("NoteViewModel", "Opening image with ID: $blockId in gallery (Placeholder)")
+        // Trong một ứng dụng thực tế, bạn sẽ tạo một Intent để mở ảnh bằng ứng dụng thư viện
+        // val uri = (_uiState.value.content.find { it.id == blockId } as? ImageBlock)?.uri
+        // uri?.let {
+        //     val intent = Intent(Intent.ACTION_VIEW).apply {
+        //         setDataAndType(it, "image/*")
+        //         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        //     }
+        //     if (intent.resolveActivity(context.packageManager) != null) {
+        //         context.startActivity(intent)
+        //     } else {
+        //         Log.e("NoteViewModel", "No app found to open image.")
+        //     }
+        // }
+    }
+
     // Đặt tiêu điểm vào một khối
     fun setFocus(blockId: String?) {
         val state = _uiState.value
@@ -591,7 +642,9 @@ class NoteViewModel : ViewModel() {
                 commitActionForUndo()
             }
             state.focusedBlockId = blockId
+            // Khi đặt focus vào một khối, đảm bảo không có ảnh nào đang được chọn hoặc vẽ
             state.selectedImageId = null
+            state.drawingImageId = null
             _pendingStyles.value = emptySet()
         }
         updateUndoRedoButtons() // Cập nhật trạng thái nút khi tiêu điểm thay đổi
