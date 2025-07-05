@@ -44,46 +44,69 @@ import androidx.compose.ui.input.pointer.pointerInput // Import cần thiết ch
 import androidx.compose.ui.input.pointer.PointerInputChange // Import cần thiết cho PointerInputChange
 import androidx.compose.ui.ExperimentalComposeUiApi // Annotation cần thiết
 import com.example.noteeditor.* // Import all classes from noteeditor package
+import com.example.noteeditor.composables.BoxScopeInstance.ImageActionMenu
 import java.util.concurrent.TimeUnit // Import TimeUnit for duration formatting
-import com.mohamedrejeb.richeditor.ui.material3.RichTextEditor // Import RichTextEditor
+import com.mohamedrejeb.richeditor.ui.material3.OutlinedRichTextEditor   // Import RichTextEditor
 import com.mohamedrejeb.richeditor.model.RichTextState // Import RichTextState
+import com.mohamedrejeb.richeditor.ui.material3.RichTextEditorDefaults
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TextBlockComposable(
     block: TextBlock,
-    onValueChange: (RichTextState) -> Unit, // Thay đổi kiểu dữ liệu
+    richTextState: RichTextState, // Nhận RichTextState trực tiếp từ ViewModel
+    onHtmlContentChange: (String) -> Unit, // Callback để trả về HTML content đã thay đổi
     onFocusChange: (FocusState) -> Unit,
-    richTextState: RichTextState // RichTextState của khối đang focus
 ) {
-    // Hợp nhất ParagraphStyle (chứa thông tin căn lề) vào TextStyle cơ sở.
-    // Lưu ý: RichTextEditor có thể xử lý căn lề riêng, đây chỉ là fallback/tương thích
     val textStyle = ComposeTextStyle.Default.merge(block.paragraphStyle)
+    val customColors = RichTextEditorDefaults.outlinedRichTextEditorColors(
+        focusedBorderColor = Color(0xFFFFFFFF),
+        unfocusedBorderColor = Color(0xFFFFFFFF),
+    )
 
-    Box(modifier = Modifier.fillMaxWidth()) { // Box để chứa RichTextEditor và Placeholder
-        RichTextEditor(
-            state = richTextState, // Sử dụng RichTextState được truyền vào
-//            onValueChange = onValueChange,
+
+    // Lắng nghe nội dung thay đổi của richTextState và gửi về ViewModel dưới dạng HTML
+    LaunchedEffect(richTextState) {
+        snapshotFlow { richTextState.toHtml() }
+            .collect { newHtml ->
+                // Chỉ gọi callback nếu nội dung HTML thực sự thay đổi
+                // Đây là để bắt các thay đổi trực tiếp từ người dùng gõ vào editor
+                if (newHtml != block.htmlContent) { // So sánh với block.htmlContent
+                    onHtmlContentChange(newHtml)
+                }
+            }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color.White, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(8.dp))
+    ) {
+        OutlinedRichTextEditor(
+            state = richTextState, // Sử dụng RichTextState cục bộ
             modifier = Modifier
-                .fillMaxWidth() // Đảm bảo toàn bộ composable chiếm đầy chiều rộng
+                .fillMaxWidth()
                 .onFocusChanged(onFocusChange),
-            textStyle = textStyle, // Có thể cần điều chỉnh cách RichTextEditor sử dụng TextStyle này
+            textStyle = textStyle,
+            colors = customColors
         )
-        // Logic placeholder cho RichTextEditor
+
+        // Placeholder text
         if (richTextState.annotatedString.isEmpty()) {
             Text(
-                "Nội dung...",
+                "",
                 color = Color.Gray,
                 style = textStyle,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .align(Alignment.TopStart) // Đảm bảo placeholder nằm ở đầu
-                    .padding(
-                        start = if (block.isListItem) 24.dp else 0.dp // Điều chỉnh padding cho bullet
-                    )
+                    .align(Alignment.TopStart)
+                    .padding(start = if (block.isListItem) 24.dp else 0.dp)
             )
         }
     }
 }
+
 
 @Composable
 fun SubHeaderBlockComposable(
@@ -218,7 +241,7 @@ fun ImageBlockComposable(
             )
 
             if (isSelected && !isDrawing) { // Chỉ hiện menu khi được chọn và không đang vẽ
-                ImageActionMenu(
+                ImageActionMenu( // [FIX] Corrected call to ImageActionMenu
                     isResized = block.isResized,
                     onDescribe = { isDescriptionVisible = !isDescriptionVisible },
                     onDraw = { onDraw(block.id) }, // Bật chế độ vẽ cho ảnh này
@@ -255,32 +278,36 @@ fun ImageBlockComposable(
     }
 }
 
-@Composable
-fun BoxScope.ImageActionMenu(
-    isResized: Boolean, onDescribe: () -> Unit, onDraw: () -> Unit,
-    onResize: () -> Unit, // Đã thêm onResize vào đây
-    onCopy: () -> Unit, onOpenInGallery: () -> Unit, onDelete: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .padding(8.dp)
-            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(24.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+// Helper object to provide BoxScope for ImageActionMenu
+object BoxScopeInstance {
+    @Composable
+    fun BoxScope.ImageActionMenu(
+        isResized: Boolean, onDescribe: () -> Unit, onDraw: () -> Unit,
+        onResize: () -> Unit, // Đã thêm onResize vào đây
+        onCopy: () -> Unit, onOpenInGallery: () -> Unit, onDelete: () -> Unit
     ) {
-        val iconColor = Color.White
-        IconButton(onClick = onDescribe) { Icon(Icons.Default.Description, "Description", tint = iconColor) }
-        IconButton(onClick = onDraw) { Icon(Icons.Default.Draw, "Draw", tint = iconColor) }
-        IconButton(onClick = onResize) {
-            Icon(if(isResized) Icons.Default.ZoomInMap else Icons.Default.ZoomOutMap, "Resize", tint = iconColor)
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(8.dp)
+                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(24.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val iconColor = Color.White
+            IconButton(onClick = onDescribe) { Icon(Icons.Default.Description, "Description", tint = iconColor) }
+            IconButton(onClick = onDraw) { Icon(Icons.Default.Draw, "Draw", tint = iconColor) }
+            IconButton(onClick = onResize) {
+                Icon(if(isResized) Icons.Default.ZoomInMap else Icons.Default.ZoomOutMap, "Resize", tint = iconColor)
+            }
+            IconButton(onClick = onCopy) { Icon(Icons.Default.ContentCopy, "Copy", tint = iconColor) }
+            IconButton(onClick = onOpenInGallery) { Icon(Icons.Default.PhotoLibrary, "Open in Gallery", tint = iconColor) }
+            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Delete", tint = iconColor) }
         }
-        IconButton(onClick = onCopy) { Icon(Icons.Default.ContentCopy, "Copy", tint = iconColor) }
-        IconButton(onClick = onOpenInGallery) { Icon(Icons.Default.PhotoLibrary, "Open in Gallery", tint = iconColor) }
-        IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Delete", tint = iconColor) }
     }
 }
+
 
 @Composable
 fun ImageDescriptionEditor(

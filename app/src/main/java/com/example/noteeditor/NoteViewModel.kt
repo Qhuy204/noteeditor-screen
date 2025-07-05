@@ -20,7 +20,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.TextUnit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.mohamedrejeb.richeditor.model.RichTextState
+import com.mohamedrejeb.richeditor.model.RichTextState // Import RichTextState
+import com.mohamedrejeb.richeditor.model.rememberRichTextState // Import rememberRichTextState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -54,9 +55,21 @@ class NoteViewModel : ViewModel() {
     // Giới hạn số lượng trạng thái undo/redo
     private val MAX_STACK_SIZE = 50
 
+    // [MỚI] Map để lưu trữ RichTextState cho từng TextBlock
+    private val richTextStates: MutableMap<String, RichTextState> = mutableMapOf()
+
+    // [MỚI] StateFlow để theo dõi RichTextState của khối đang được focus (dành cho Toolbar)
+    private val _activeRichTextState = MutableStateFlow(RichTextState())
+    val activeRichTextState: StateFlow<RichTextState> = _activeRichTextState.asStateFlow()
+
     init {
         // Đẩy trạng thái khởi tạo vào undo stack
-        undoStack.add(_uiState.value.deepCopy())
+        val initialState = _uiState.value.deepCopy()
+        // Khởi tạo RichTextState cho các TextBlock ban đầu
+        initialState.content.filterIsInstance<TextBlock>().forEach { textBlock ->
+            richTextStates[textBlock.id] = RichTextState().apply { setHtml(textBlock.htmlContent) }
+        }
+        undoStack.add(initialState)
         updateUndoRedoButtons()
     }
 
@@ -127,7 +140,11 @@ class NoteViewModel : ViewModel() {
             undoStack.removeAt(undoStack.lastIndex)
 
             // Cập nhật UI về trạng thái trước đó
-            _uiState.value = undoStack.last().deepCopy()
+            val restoredState = undoStack.last().deepCopy()
+            _uiState.value = restoredState
+
+            // [MỚI] Cập nhật RichTextState trong map dựa trên trạng thái được khôi phục
+            updateRichTextStatesFromNoteState(restoredState)
 
             updateUndoRedoButtons()
             Log.d("UndoRedo", "Undo performed. UndoStack size: ${undoStack.size}, RedoStack size: ${redoStack.size}")
@@ -147,11 +164,42 @@ class NoteViewModel : ViewModel() {
             val nextState = redoStack.removeAt(redoStack.lastIndex)
             _uiState.value = nextState
 
+            // [MỚI] Cập nhật RichTextState trong map dựa trên trạng thái được khôi phục
+            updateRichTextStatesFromNoteState(nextState)
+
             updateUndoRedoButtons()
             Log.d("UndoRedo", "Redo performed. UndoStack size: ${undoStack.size}, RedoStack size: ${redoStack.size}")
         } else {
             Log.d("UndoRedo", "Cannot redo. RedoStack is empty.")
         }
+    }
+
+    // [MỚI] Hàm để cập nhật RichTextState trong map khi trạng thái NoteState thay đổi (undo/redo)
+    private fun updateRichTextStatesFromNoteState(noteState: NoteState) {
+        val newRichTextStates = mutableMapOf<String, RichTextState>()
+        noteState.content.filterIsInstance<TextBlock>().forEach { textBlock ->
+            val existingState = richTextStates[textBlock.id]
+            if (existingState != null) {
+                // Nếu RichTextState đã tồn tại, cập nhật nội dung của nó
+                existingState.setHtml(textBlock.htmlContent)
+                newRichTextStates[textBlock.id] = existingState
+            } else {
+                // Nếu chưa tồn tại, tạo mới
+                newRichTextStates[textBlock.id] = RichTextState().apply { setHtml(textBlock.htmlContent) }
+            }
+        }
+        // Xóa các RichTextState không còn cần thiết
+        richTextStates.clear()
+        richTextStates.putAll(newRichTextStates)
+
+        // Cập nhật activeRichTextState nếu khối đang focus là TextBlock
+        _uiState.value.focusedBlockId?.let { focusedId ->
+            if (richTextStates.containsKey(focusedId)) {
+                _activeRichTextState.value = richTextStates[focusedId]!!
+            } else {
+                _activeRichTextState.value = RichTextState() // Reset nếu khối focus không còn là TextBlock
+            }
+        } ?: run { _activeRichTextState.value = RichTextState() } // Reset nếu không có khối nào focus
     }
 
     // Hàm hỗ trợ để thực hiện một hành động có thể hoàn tác
@@ -173,17 +221,15 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-    // Xử lý thay đổi nội dung của TextBlock (sử dụng RichTextState)
-    fun onTextBlockChange(blockId: String, newValue: RichTextState) {
+    // [ĐÃ SỬA] Xử lý thay đổi nội dung của TextBlock (nhận HTML string)
+    fun onTextBlockChange(blockId: String, newHtmlContent: String) {
         val block = _uiState.value.content.find { it.id == blockId } as? TextBlock
         if (block != null) {
-            // RichTextState tự quản lý nội bộ các thay đổi,
-            // chúng ta chỉ cần cập nhật tham chiếu và lưu trạng thái khi cần
-            if (block.value != newValue) { // Kiểm tra nếu tham chiếu đối tượng RichTextState thay đổi
-                Log.d("ContentChange", "TextBlock RichTextState object changed. Saving state.")
+            if (block.htmlContent != newHtmlContent) {
+                // Chỉ lưu trạng thái nếu nội dung HTML thực sự thay đổi
                 saveStateForUndoInternal(_uiState.value.deepCopy())
+                block.htmlContent = newHtmlContent
             }
-            block.value = newValue
         }
         updateUndoRedoButtons() // Cập nhật trạng thái nút sau mỗi thay đổi nội dung
     }
@@ -220,68 +266,68 @@ class NoteViewModel : ViewModel() {
 
     // SỬA LỖI: Các hàm định dạng văn bản đã được cập nhật để sử dụng API mới
     fun toggleBold() {
-        _uiState.value.currentRichTextState.toggleSpanStyle(SpanStyle(fontWeight = FontWeight.Bold))
-        val isBold = _uiState.value.currentRichTextState.currentSpanStyle.fontWeight == FontWeight.Bold
+        _activeRichTextState.value.toggleSpanStyle(SpanStyle(fontWeight = FontWeight.Bold))
+        val isBold = _activeRichTextState.value.currentSpanStyle.fontWeight == FontWeight.Bold
         Log.d("Formatting", "Toggled Bold. Current isBold: $isBold")
     }
 
     fun toggleItalic() {
-        _uiState.value.currentRichTextState.toggleSpanStyle(SpanStyle(fontStyle = FontStyle.Italic))
-        val isItalic = _uiState.value.currentRichTextState.currentSpanStyle.fontStyle == FontStyle.Italic
+        _activeRichTextState.value.toggleSpanStyle(SpanStyle(fontStyle = FontStyle.Italic))
+        val isItalic = _activeRichTextState.value.currentSpanStyle.fontStyle == FontStyle.Italic
         Log.d("Formatting", "Toggled Italic. Current isItalic: $isItalic")
     }
 
     fun toggleUnderline() {
-        _uiState.value.currentRichTextState.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.Underline))
-        val isUnderline = _uiState.value.currentRichTextState.currentSpanStyle.textDecoration?.contains(TextDecoration.Underline) == true
+        _activeRichTextState.value.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.Underline))
+        val isUnderline = _activeRichTextState.value.currentSpanStyle.textDecoration?.contains(TextDecoration.Underline) == true
         Log.d("Formatting", "Toggled Underline. Current isUnderline: $isUnderline")
     }
 
     fun toggleStrikethrough() {
-        _uiState.value.currentRichTextState.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.LineThrough))
-        val isStrikethrough = _uiState.value.currentRichTextState.currentSpanStyle.textDecoration?.contains(TextDecoration.LineThrough) == true
+        _activeRichTextState.value.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.LineThrough))
+        val isStrikethrough = _activeRichTextState.value.currentSpanStyle.textDecoration?.contains(TextDecoration.LineThrough) == true
         Log.d("Formatting", "Toggled Strikethrough. Current isStrikethrough: $isStrikethrough")
     }
 
     fun setTextAlign(textAlign: TextAlign) {
-        _uiState.value.currentRichTextState.toggleParagraphStyle(ParagraphStyle(textAlign = textAlign))
+        _activeRichTextState.value.toggleParagraphStyle(ParagraphStyle(textAlign = textAlign))
         Log.d("Formatting", "Set TextAlign: $textAlign")
     }
 
     fun setFontSize(size: TextUnit) {
-        _uiState.value.currentRichTextState.toggleSpanStyle(SpanStyle(fontSize = size))
+        _activeRichTextState.value.toggleSpanStyle(SpanStyle(fontSize = size))
         Log.d("Formatting", "Set FontSize: ${size.value}sp")
     }
 
     fun setTextColor(color: Color) {
-        _uiState.value.currentRichTextState.toggleSpanStyle(SpanStyle(color = color))
+        _activeRichTextState.value.toggleSpanStyle(SpanStyle(color = color))
         Log.d("Formatting", "Set TextColor: $color")
     }
 
     fun setTextBackgroundColor(color: Color) {
-        _uiState.value.currentRichTextState.toggleSpanStyle(SpanStyle(background = color))
+        _activeRichTextState.value.toggleSpanStyle(SpanStyle(background = color))
         Log.d("Formatting", "Set TextBackgroundColor: $color")
     }
 
     fun toggleBulletList() {
-        _uiState.value.currentRichTextState.toggleUnorderedList()
-        Log.d("Formatting", "Toggled Bullet List. Current isUnorderedList: ${_uiState.value.currentRichTextState.isUnorderedList}")
+        _activeRichTextState.value.toggleUnorderedList()
+        Log.d("Formatting", "Toggled Bullet List. Current isUnorderedList: ${_activeRichTextState.value.isUnorderedList}")
     }
 
     fun toggleNumberedList() {
-        _uiState.value.currentRichTextState.toggleOrderedList()
-        Log.d("Formatting", "Toggled Numbered List. Current isOrderedList: ${_uiState.value.currentRichTextState.isOrderedList}")
+        _activeRichTextState.value.toggleOrderedList()
+        Log.d("Formatting", "Toggled Numbered List. Current isOrderedList: ${_activeRichTextState.value.isOrderedList}")
     }
 
 //    fun indent() {
 //        // SỬA LỖI: Thay 'indent' bằng 'increaseIndent'
-//        _uiState.value.currentRichTextState.increaseIndent()
+//        _activeRichTextState.value.increaseIndent()
 //        Log.d("Formatting", "Indented text.")
 //    }
 //
 //    fun outdent() {
 //        // SỬA LỖI: Thay 'outdent' bằng 'decreaseIndent'
-//        _uiState.value.currentRichTextState.decreaseIndent()
+//        _activeRichTextState.value.decreaseIndent()
 //        Log.d("Formatting", "Outdented text.")
 //    }
 
@@ -300,11 +346,18 @@ class NoteViewModel : ViewModel() {
             val insertionPoint = if (focusedIndex != -1) focusedIndex + 1 else state.content.size
 
             state.content.add(insertionPoint, newBlock)
+
+            // [MỚI] Nếu là TextBlock, thêm RichTextState vào map
+            if (newBlock is TextBlock) {
+                richTextStates[newBlock.id] = RichTextState().apply { setHtml(newBlock.htmlContent) }
+            }
+
             // Đảm bảo có một TextBlock trống sau khi chèn nếu khối mới không phải là văn bản
             if (newBlock !is TextBlock && newBlock !is SubHeaderBlock && newBlock !is NumberedListItemBlock && newBlock !is SeparatorBlock && newBlock !is AudioBlock && newBlock !is ImageBlock) {
-                val nextTextBlock = TextBlock()
-                state.content.add(insertionPoint + 1, nextTextBlock)
-                state.focusedBlockId = nextTextBlock.id
+                val newTextBlock = TextBlock()
+                state.content.add(insertionPoint + 1, newTextBlock)
+                richTextStates[newTextBlock.id] = RichTextState().apply { setHtml(newTextBlock.htmlContent) } // Thêm vào map
+                state.focusedBlockId = newTextBlock.id
             } else if (newBlock is TextBlock || newBlock is SubHeaderBlock || newBlock is NumberedListItemBlock || newBlock is AudioBlock || newBlock is ImageBlock) {
                 state.focusedBlockId = newBlock.id
             } else {
@@ -521,6 +574,8 @@ class NoteViewModel : ViewModel() {
                     cancelRecording()
                 }
                 blockToDelete.filePath?.let { File(it).delete() }
+            } else if (blockToDelete is TextBlock) { // [MỚI] Xóa RichTextState khỏi map khi TextBlock bị xóa
+                richTextStates.remove(blockId)
             }
             _uiState.value.content.removeAll { it.id == blockId }
             if (_uiState.value.selectedImageId == blockId) {
@@ -529,6 +584,10 @@ class NoteViewModel : ViewModel() {
             // Nếu khối bị xóa là khối đang vẽ, đặt lại trạng thái vẽ
             if (_uiState.value.drawingImageId == blockId) {
                 _uiState.value.drawingImageId = null
+            }
+            // Nếu khối bị xóa là khối đang focus, đặt lại focus
+            if (_uiState.value.focusedBlockId == blockId) {
+                setFocus(null)
             }
         }
     }
@@ -596,12 +655,19 @@ class NoteViewModel : ViewModel() {
             state.selectedImageId = null
             state.drawingImageId = null
 
-            // Cập nhật currentRichTextState khi focus thay đổi
+            // [MỚI] Cập nhật activeRichTextState khi focus thay đổi
             if (blockId != null) {
                 val focusedBlock = state.content.find { it.id == blockId }
                 if (focusedBlock is TextBlock) {
-                    state.currentRichTextState = focusedBlock.value
+                    // Lấy RichTextState từ map hoặc tạo mới nếu chưa có (dù không nên xảy ra)
+                    _activeRichTextState.value = richTextStates.getOrPut(focusedBlock.id) {
+                        RichTextState().apply { setHtml(focusedBlock.htmlContent) }
+                    }
+                } else {
+                    _activeRichTextState.value = RichTextState() // Reset nếu khối focus không phải TextBlock
                 }
+            } else {
+                _activeRichTextState.value = RichTextState() // Reset nếu không có khối nào focus
             }
         }
         updateUndoRedoButtons() // Cập nhật trạng thái nút khi tiêu điểm thay đổi
@@ -717,6 +783,7 @@ class NoteViewModel : ViewModel() {
         releaseRecorder()
         releasePlayer()
         recordingJob?.cancel()
+        richTextStates.clear() // Xóa tất cả RichTextState khi ViewModel bị xóa
     }
 
     // Hàm để di chuyển một ContentBlock
@@ -729,11 +796,22 @@ class NoteViewModel : ViewModel() {
             val contentList = _uiState.value.content
             val movedBlock = contentList.removeAt(fromIndex)
             contentList.add(toIndex, movedBlock)
+
+            // [MỚI] Khi di chuyển, đảm bảo RichTextState của TextBlock vẫn được liên kết đúng
+            if (movedBlock is TextBlock) {
+                // Không cần làm gì đặc biệt ở đây vì RichTextState đã được quản lý bằng ID
+                // và ID của block không thay đổi khi di chuyển.
+            }
+
             // Đảm bảo có một TextBlock trống sau khi di chuyển nếu cần
             if (movedBlock !is TextBlock && toIndex + 1 < contentList.size && contentList[toIndex + 1] !is TextBlock) {
-                contentList.add(toIndex + 1, TextBlock())
+                val newTextBlock = TextBlock()
+                contentList.add(toIndex + 1, newTextBlock)
+                richTextStates[newTextBlock.id] = RichTextState().apply { setHtml(newTextBlock.htmlContent) } // Thêm vào map
             } else if (movedBlock !is TextBlock && toIndex == contentList.lastIndex) {
-                contentList.add(TextBlock())
+                val newTextBlock = TextBlock()
+                contentList.add(newTextBlock)
+                richTextStates[newTextBlock.id] = RichTextState().apply { setHtml(newTextBlock.htmlContent) } // Thêm vào map
             }
             Log.d("NoteEditorDebug", "Moved block from $fromIndex to $toIndex")
         }
@@ -751,5 +829,12 @@ class NoteViewModel : ViewModel() {
     // Hàm tiện ích để debug undo/redo stacks
     fun getUndoRedoStackInfo(): String {
         return "UndoStack: ${undoStack.size}, RedoStack: ${redoStack.size}"
+    }
+
+    // [MỚI] Hàm để lấy RichTextState cho một TextBlock cụ thể
+    fun getOrCreateRichTextState(blockId: String, initialHtml: String): RichTextState {
+        return richTextStates.getOrPut(blockId) {
+            RichTextState().apply { setHtml(initialHtml) }
+        }
     }
 }

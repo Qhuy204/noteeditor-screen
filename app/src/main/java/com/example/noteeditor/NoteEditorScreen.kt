@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -25,6 +26,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusState // Added import
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -42,7 +45,9 @@ import com.example.noteeditor.composables.*
 import java.io.File
 import java.util.Objects
 import com.mohamedrejeb.richeditor.model.RichTextState
-import com.mohamedrejeb.richeditor.ui.material3.RichTextEditor // Import RichTextEditor
+import com.mohamedrejeb.richeditor.ui.material3.OutlinedRichTextEditor
+import com.mohamedrejeb.richeditor.ui.material3.RichTextEditor
+import androidx.compose.ui.text.TextStyle as ComposeTextStyle
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -68,6 +73,9 @@ fun NoteEditorScreen(
     var currentDropTargetIndex by remember { mutableStateOf<Int?>(null) }
     val localDensity = LocalDensity.current
 
+    // [MỚI] Lấy RichTextState của khối đang được focus từ ViewModel
+    val activeRichTextState by viewModel.activeRichTextState.collectAsState()
+
     val requestRecordAudioPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
@@ -83,7 +91,6 @@ fun NoteEditorScreen(
     val openImageInGalleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        // Không cần xử lý kết quả ở đây vì chỉ mở ứng dụng khác
         Log.d("NoteEditorScreen", "Attempted to open image in gallery. Result: ${result.resultCode}")
     }
 
@@ -220,8 +227,7 @@ fun NoteEditorScreen(
                 TransformingBottomToolbar(
                     isKeyboardVisible = isKeyboardVisible,
                     isFormattingMode = uiState.isTextFormatToolbarVisible,
-                    // Truyền RichTextState trực tiếp để thanh công cụ có thể tương tác
-                    richTextState = uiState.currentRichTextState,
+                    richTextState = activeRichTextState,
                     onToggleFormattingMode = {
                         viewModel.toggleTextFormatToolbar(!uiState.isTextFormatToolbarVisible)
                         Log.d(
@@ -236,8 +242,6 @@ fun NoteEditorScreen(
                     onTextAlignChange = { viewModel.setTextAlign(it) },
                     onToggleBulletList = { viewModel.toggleBulletList() },
                     onToggleNumberedList = { viewModel.toggleNumberedList() },
-//                    onIndent = { viewModel.indent() }, // Sửa lỗi TODO
-//                    onOutdent = { viewModel.outdent() }, // Sửa lỗi TODO
                     onAddSeparator = {
                         viewModel.addSeparator()
                         Log.d("NoteEditorScreen", "Added separator.")
@@ -288,7 +292,7 @@ fun NoteEditorScreen(
                         viewModel.cancelRecording()
                         Log.d("NoteEditorScreen", "Cancelled recording.")
                     },
-                    modifier = Modifier // Đặt modifier thành Modifier.fillMaxWidth() hoặc Modifier.wrapContentSize()
+                    modifier = Modifier
                 )
             }
         }
@@ -334,19 +338,19 @@ fun NoteEditorScreen(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween // Added to space out items
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
                         text = uiState.date,
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray,
                         fontWeight = FontWeight(500),
-                        fontSize = 13.sp // Fixed: using .sp for font size
+                        fontSize = 13.sp
                     )
 
                     Box(
-                        modifier = Modifier, // Changed to allow the AssistChip to control its width
-                        contentAlignment = Alignment.CenterEnd // Align to the end of the Row
+                        modifier = Modifier,
+                        contentAlignment = Alignment.CenterEnd
                     ) {
                         AssistChip(
                             onClick = { /* TODO: Implement click logic for category chip */ },
@@ -381,11 +385,9 @@ fun NoteEditorScreen(
                             colors = AssistChipDefaults.assistChipColors(containerColor = Color(0xFFF2F2F2)),
                             border = null
                         )
-
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-
 
                 Box(
                     modifier = Modifier
@@ -430,21 +432,15 @@ fun NoteEditorScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .onGloballyPositioned { layoutCoordinates ->
-                            // Cập nhật vị trí của từng item để tính toán drop target
-                            // Lưu ý: Trong một ứng dụng thực tế, bạn sẽ cần một cách quản lý vị trí tốt hơn
-                            // ví dụ: một map từ ID khối đến Rect/Offset
-                            // Để đơn giản, ở đây ta sẽ dùng index và chiều cao
                             val itemHeight = layoutCoordinates.size.height.toFloat()
                             val itemTop = layoutCoordinates.positionInWindow().y
                             val itemBottom = itemTop + itemHeight
 
-                            // Logic để xác định drop target
                             if (uiState.draggingBlockId != null) {
                                 val dragPosition = uiState.dropTargetIndex?.let {
                                     lazyListState.layoutInfo.visibleItemsInfo.getOrNull(it)?.offset?.toFloat()
-                                } ?: 0f // Giả định vị trí kéo
+                                } ?: 0f
 
-                                // Nếu vị trí kéo nằm trong khoảng của block hiện tại
                                 if (dragPosition >= itemTop && dragPosition < itemBottom) {
                                     currentDropTargetIndex = index
                                     Log.d("NoteEditorScreen", "Drop target updated to index: $index")
@@ -453,14 +449,12 @@ fun NoteEditorScreen(
                         }
                         .combinedClickable(
                             onLongClick = {
-                                // Bắt đầu kéo
                                 draggingBlockIndex = index
                                 viewModel.setDraggingBlockId(block.id)
                                 focusManager.clearFocus()
                                 Log.d("NoteEditorScreen", "Started dragging block with ID: ${block.id} at index: $index")
                             },
                             onClick = {
-                                // Xử lý click thông thường
                                 if (block is ImageBlock) {
                                     viewModel.onImageClick(block.id)
                                     focusManager.clearFocus()
@@ -474,26 +468,28 @@ fun NoteEditorScreen(
                         )
                 ) {
                     when (block) {
-                        is TextBlock -> TextBlockComposable(block,
-                            onValueChange = {
-                                // Truyền RichTextState trực tiếp
-                                viewModel.onTextBlockChange(block.id, it)
-                                Log.d("NoteEditorScreen", "TextBlock content changed for ID: ${block.id}")
-                            },
-                            onFocusChange = { focusState ->
-                                if (focusState.isFocused) {
-                                    viewModel.setFocus(block.id)
-                                    Log.d("NoteEditorScreen", "TextBlock gained focus for ID: ${block.id}")
-                                } else {
-                                    viewModel.commitActionForUndo()
-                                    Log.d("NoteEditorScreen", "TextBlock lost focus for ID: ${block.id}. Committed for undo.")
+                        is TextBlock -> {
+                            val textBlockRichTextState = viewModel.getOrCreateRichTextState(block.id, block.htmlContent)
+                            TextBlockComposable(
+                                block = block,
+                                richTextState = textBlockRichTextState, // Pass the RichTextState from ViewModel
+                                onHtmlContentChange = { newHtml ->
+                                    viewModel.onTextBlockChange(block.id, newHtml)
+                                    Log.d("NoteEditorScreen", "TextBlock content changed for ID: ${block.id}")
+                                },
+                                onFocusChange = { focusState ->
+                                    if (focusState.isFocused) {
+                                        viewModel.setFocus(block.id)
+                                        Log.d("NoteEditorScreen", "TextBlock gained focus for ID: ${block.id}")
+                                    } else {
+                                        viewModel.commitActionForUndo()
+                                        Log.d("NoteEditorScreen", "TextBlock lost focus for ID: ${block.id}. Committed for undo.")
+                                    }
                                 }
-                            },
-                            richTextState = uiState.currentRichTextState // Truyền RichTextState của khối đang focus
-                        )
+                            )
+                        }
                         is SubHeaderBlock -> SubHeaderBlockComposable(block,
                             onValueChange = {
-                                // Truyền TextFieldValue
                                 viewModel.onOtherBlockChange(block.id, it)
                                 Log.d("NoteEditorScreen", "SubHeaderBlock content changed for ID: ${block.id}")
                             },
@@ -508,9 +504,8 @@ fun NoteEditorScreen(
                             }
                         )
                         is NumberedListItemBlock -> NumberedListItemBlockComposable(block,
-                            index = index, // Truyền index để hiển thị số thứ tự
+                            index = index,
                             onValueChange = {
-                                // Truyền TextFieldValue
                                 viewModel.onOtherBlockChange(block.id, it)
                                 Log.d("NoteEditorScreen", "NumberedListItemBlock content changed for ID: ${block.id}")
                             },
@@ -527,7 +522,7 @@ fun NoteEditorScreen(
                         is ImageBlock -> ImageBlockComposable(
                             block,
                             isSelected = uiState.selectedImageId == block.id,
-                            isDrawing = uiState.drawingImageId == block.id, // Truyền trạng thái vẽ
+                            isDrawing = uiState.drawingImageId == block.id,
                             onImageClick = {
                                 viewModel.onImageClick(block.id)
                                 focusManager.clearFocus()
@@ -545,15 +540,15 @@ fun NoteEditorScreen(
                                 viewModel.updateImageDescription(block.id, newDesc)
                                 Log.d("NoteEditorScreen", "Updated description for ImageBlock ${block.id}: $newDesc")
                             },
-                            onDraw = { imageIdToDraw -> // Callback để bật/tắt chế độ vẽ
+                            onDraw = { imageIdToDraw ->
                                 viewModel.toggleDrawingMode(imageIdToDraw)
                                 Log.d("NoteEditorScreen", "Toggled drawing mode for ImageBlock ${block.id}. New state: $imageIdToDraw")
                             },
-                            onCopy = { imageIdToCopy -> // Callback copy ảnh
-                                viewModel.copyImage(context, imageIdToCopy) // Truyền context vào đây
+                            onCopy = { imageIdToCopy ->
+                                viewModel.copyImage(context, imageIdToCopy)
                                 Log.d("NoteEditorScreen", "Copied ImageBlock: $imageIdToCopy")
                             },
-                            onOpenInGallery = { imageIdToOpen -> // Callback mở ảnh trong thư viện
+                            onOpenInGallery = { imageIdToOpen ->
                                 val imageBlock = uiState.content.find { it.id == imageIdToOpen } as? ImageBlock
                                 imageBlock?.uri?.let { uri ->
                                     val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -575,7 +570,6 @@ fun NoteEditorScreen(
                                 Log.d("NoteEditorScreen", "Checkbox state changed for ID ${block.id}: $it")
                             },
                             onValueChange = {
-                                // Truyền TextFieldValue
                                 viewModel.onOtherBlockChange(block.id, it)
                                 Log.d("NoteEditorScreen", "CheckboxBlock content changed for ID: ${block.id}")
                             },
@@ -619,7 +613,6 @@ fun NoteEditorScreen(
                         })
                     }
 
-                    // [MỚI] Hiển thị đường kẻ khi kéo
                     if (isDropTarget && draggingBlockIndex != null && draggingBlockIndex != index) {
                         Divider(
                             color = MaterialTheme.colorScheme.primary,
@@ -634,7 +627,6 @@ fun NoteEditorScreen(
                 }
             }
 
-            // [MỚI] Thêm một item giả để cho phép thả vào cuối danh sách
             item {
                 if (uiState.draggingBlockId != null && currentDropTargetIndex == uiState.content.lastIndex) {
                     Divider(
@@ -644,7 +636,7 @@ fun NoteEditorScreen(
                     )
                     Log.d("NoteEditorScreen", "Displaying drop target divider at end of list.")
                 }
-                Spacer(Modifier.height(56.dp)) // Đủ không gian cho FAB
+                Spacer(Modifier.height(56.dp))
             }
         }
     }

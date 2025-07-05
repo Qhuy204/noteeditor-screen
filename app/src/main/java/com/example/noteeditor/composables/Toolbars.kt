@@ -145,8 +145,8 @@ fun TransformingBottomToolbar(
                     .fillMaxSize()
                     .glassmorphism(
                         cornerRadius = cornerRadius,
-                        glassColor = MaterialTheme.colorScheme.surfaceVariant,
-                        transparency = 0.5f
+                        glassColor = MaterialTheme.colorScheme.background, // Đổi màu nền về màu background của app
+                        transparency = 0.9f // Tăng độ trong suốt để hòa vào nền
                     )
 
                 AnimatedContent(
@@ -202,7 +202,7 @@ fun TransformingBottomToolbar(
                         .clip(RoundedCornerShape(cornerRadius)) // Bo góc khớp với thanh công cụ bên dưới
                         .glassmorphism( // Áp dụng hiệu ứng tương tự để che phủ hoàn hảo
                             cornerRadius = cornerRadius,
-                            glassColor = MaterialTheme.colorScheme.surfaceVariant,
+                            glassColor = MaterialTheme.colorScheme.background, // Đổi màu nền về màu background của app
                             transparency = 1f
                         ),
                     duration = recordingDuration,
