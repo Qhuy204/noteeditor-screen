@@ -1,29 +1,19 @@
-// File: NoteState.kt
 package com.example.noteeditor
 
 import android.net.Uri
 import android.util.Log
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
-import com.example.noteeditor.composables.Style // Import Style enum
 import java.text.SimpleDateFormat
 import java.util.*
-// Removed RichTextState and rememberRichTextState imports from here, as they are UI-specific and will be managed in ViewModel/Composable.
-// import com.mohamedrejeb.richeditor.model.RichTextState
-// import com.mohamedrejeb.richeditor.model.rememberRichTextState
 
-// --- STATE CLASSES ---
 
 @Stable
 // Cập nhật ContentBlock để có thể truyền id vào constructor

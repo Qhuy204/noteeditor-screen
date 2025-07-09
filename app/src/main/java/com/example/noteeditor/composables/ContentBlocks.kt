@@ -38,24 +38,29 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import coil.compose.rememberAsyncImagePainter
-import coil.request.ImageRequest // Import mới
-import coil.size.OriginalSize // Import mới
-import androidx.compose.ui.input.pointer.pointerInput // Import cần thiết cho pointerInput
-import androidx.compose.ui.input.pointer.PointerInputChange // Import cần thiết cho PointerInputChange
-import androidx.compose.ui.ExperimentalComposeUiApi // Annotation cần thiết
+import coil.request.ImageRequest // New import
+import coil.size.OriginalSize // New import
+import androidx.compose.ui.input.pointer.pointerInput // Required import for pointerInput
+import androidx.compose.ui.input.pointer.PointerInputChange // Required import for PointerInputChange
+import androidx.compose.ui.ExperimentalComposeUiApi // Required annotation
 import com.example.noteeditor.* // Import all classes from noteeditor package
 import com.example.noteeditor.composables.BoxScopeInstance.ImageActionMenu
 import java.util.concurrent.TimeUnit // Import TimeUnit for duration formatting
 import com.mohamedrejeb.richeditor.ui.material3.OutlinedRichTextEditor   // Import RichTextEditor
 import com.mohamedrejeb.richeditor.model.RichTextState // Import RichTextState
 import com.mohamedrejeb.richeditor.ui.material3.RichTextEditorDefaults
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Fill
+import com.linc.audiowaveform.AudioWaveform // [NEW] Import AudioWaveform library
+import com.linc.audiowaveform.model.AmplitudeType
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TextBlockComposable(
     block: TextBlock,
-    richTextState: RichTextState, // Nhận RichTextState trực tiếp từ ViewModel
-    onHtmlContentChange: (String) -> Unit, // Callback để trả về HTML content đã thay đổi
+    richTextState: RichTextState, // Receive RichTextState directly from ViewModel
+    onHtmlContentChange: (String) -> Unit, // Callback to return changed HTML content
     onFocusChange: (FocusState) -> Unit,
 ) {
     val textStyle = ComposeTextStyle.Default.merge(block.paragraphStyle)
@@ -64,13 +69,13 @@ fun TextBlockComposable(
         unfocusedBorderColor = Color(0xFFFFFFFF),
     )
 
-    // Lắng nghe nội dung thay đổi của richTextState và gửi về ViewModel dưới dạng HTML
+    // Listen for richTextState content changes and send back to ViewModel as HTML
     LaunchedEffect(richTextState) {
         snapshotFlow { richTextState.toHtml() }
             .collect { newHtml ->
-                // Chỉ gọi callback nếu nội dung HTML thực sự thay đổi
-                // Đây là để bắt các thay đổi trực tiếp từ người dùng gõ vào editor
-                if (newHtml != block.htmlContent) { // So sánh với block.htmlContent
+                // Only call callback if HTML content actually changes
+                // This is to capture changes directly from user typing in the editor
+                if (newHtml != block.htmlContent) { // Compare with block.htmlContent
                     onHtmlContentChange(newHtml)
                 }
             }
@@ -83,7 +88,7 @@ fun TextBlockComposable(
             .clip(RoundedCornerShape(8.dp))
     ) {
         OutlinedRichTextEditor(
-            state = richTextState, // Sử dụng RichTextState cục bộ
+            state = richTextState, // Use local RichTextState
             modifier = Modifier
                 .fillMaxWidth()
                 .onFocusChanged(onFocusChange),
@@ -128,7 +133,7 @@ fun SubHeaderBlockComposable(
             Box(modifier = Modifier.fillMaxWidth()) {
                 if (block.value.annotatedString.isEmpty()) {
                     Text(
-                        "Tiêu đề phụ...",
+                        "Subheader...",
                         color = Color.Gray,
                         style = textStyle,
                         modifier = Modifier.fillMaxWidth()
@@ -143,7 +148,7 @@ fun SubHeaderBlockComposable(
 @Composable
 fun NumberedListItemBlockComposable(
     block: NumberedListItemBlock,
-    index: Int, // Cần index để hiển thị số thứ tự
+    index: Int, // Need index to display order number
     onValueChange: (TextFieldValue) -> Unit,
     onFocusChange: (FocusState) -> Unit
 ) {
@@ -154,7 +159,7 @@ fun NumberedListItemBlockComposable(
         verticalAlignment = Alignment.Top
     ) {
         Text(
-            text = "${index + 1}. ", // Hiển thị số thứ tự
+            text = "${index + 1}. ", // Display order number
             style = textStyle,
             modifier = Modifier.padding(end = 8.dp)
         )
@@ -168,7 +173,7 @@ fun NumberedListItemBlockComposable(
             decorationBox = { innerTextField ->
                 if (block.value.annotatedString.isEmpty()) {
                     Text(
-                        "Mục danh sách...",
+                        "List item...",
                         color = Color.Gray,
                         style = textStyle,
                         modifier = Modifier.fillMaxWidth()
@@ -185,22 +190,22 @@ fun NumberedListItemBlockComposable(
 fun ImageBlockComposable(
     block: ImageBlock,
     isSelected: Boolean,
-    isDrawing: Boolean, // [MỚI] Trạng thái đang vẽ
+    isDrawing: Boolean, // [NEW] Drawing state
     onImageClick: () -> Unit,
     onResize: () -> Unit,
     onDelete: () -> Unit,
     onDescriptionChange: (String) -> Unit,
-    onDraw: (String?) -> Unit, // [MỚI] Callback để bật/tắt chế độ vẽ
-    onCopy: (String) -> Unit, // [MỚI] Callback để copy ảnh
-    onOpenInGallery: (String) -> Unit // [MỚI] Callback để mở ảnh trong thư viện
+    onDraw: (String?) -> Unit, // [NEW] Callback to toggle drawing mode
+    onCopy: (String) -> Unit, // [NEW] Callback to copy image
+    onOpenInGallery: (String) -> Unit // [NEW] Callback to open image in gallery
 ) {
     val targetImageSizeFraction = if (block.isResized) 0.5f else 1f
     val animatedImageSizeFraction by animateFloatAsState(
         targetValue = targetImageSizeFraction,
-        animationSpec = tween(durationMillis = 300) // Animation mượt mà
+        animationSpec = tween(durationMillis = 300) // Smooth animation
     )
     var isDescriptionVisible by remember { mutableStateOf(false) }
-    val context = LocalContext.current // Lấy context cho ImageRequest
+    val context = LocalContext.current // Get context for ImageRequest
 
     // Declare imageAspectRatio here, outside the painter block, but within the Composable's scope
     val painter = rememberAsyncImagePainter(
@@ -217,16 +222,16 @@ fun ImageBlockComposable(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp),
-        // Căn trái khi ảnh thu nhỏ, căn giữa khi ảnh 100%
+        // Align left when image is resized, center when image is 100%
         horizontalAlignment = if (block.isResized) Alignment.Start else Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth(animatedImageSizeFraction) // Sử dụng giá trị animation
+                .fillMaxWidth(animatedImageSizeFraction) // Use animation value
                 .clip(RoundedCornerShape(12.dp))
                 .clickable { onImageClick() }
                 .then(
-                    if (isSelected) Modifier.border(2.dp, Color(0xFFFF9800), RoundedCornerShape(12.dp)) // Viền cam
+                    if (isSelected) Modifier.border(2.dp, Color(0xFFFF9800), RoundedCornerShape(12.dp)) // Orange border
                     else Modifier
                 )
         ) {
@@ -235,16 +240,16 @@ fun ImageBlockComposable(
                 contentDescription = block.description,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(imageAspectRatio), // Sử dụng biến đã đổi tên
-                contentScale = ContentScale.Fit // Giữ nguyên chất lượng ảnh
+                    .aspectRatio(imageAspectRatio), // Use renamed variable
+                contentScale = ContentScale.Fit // Maintain image quality
             )
 
-            if (isSelected && !isDrawing) { // Chỉ hiện menu khi được chọn và không đang vẽ
+            if (isSelected && !isDrawing) { // Only show menu when selected and not drawing
                 ImageActionMenu( // [FIX] Corrected call to ImageActionMenu
                     isResized = block.isResized,
                     onDescribe = { isDescriptionVisible = !isDescriptionVisible },
-                    onDraw = { onDraw(block.id) }, // Bật chế độ vẽ cho ảnh này
-                    onResize = onResize, // Truyền onResize vào đây
+                    onDraw = { onDraw(block.id) }, // Enable drawing mode for this image
+                    onResize = onResize, // Pass onResize here
                     onCopy = { onCopy(block.id) },
                     onOpenInGallery = { onOpenInGallery(block.id) },
                     onDelete = onDelete
@@ -252,26 +257,26 @@ fun ImageBlockComposable(
             }
         }
 
-        // Editor mô tả ảnh
+        // Image description editor
         AnimatedVisibility(visible = isDescriptionVisible || block.description.isNotEmpty()) {
             ImageDescriptionEditor(
                 description = block.description,
                 onDescriptionChange = onDescriptionChange,
                 modifier = Modifier
-                    .fillMaxWidth(animatedImageSizeFraction) // Kích thước theo ảnh
+                    .fillMaxWidth(animatedImageSizeFraction) // Size according to image
                     .padding(top = 4.dp)
             )
         }
 
-        // Canvas vẽ trên ảnh
+        // Drawing canvas on image
         AnimatedVisibility(visible = isDrawing) {
             ImageDrawingCanvas(
                 modifier = Modifier
-                    .fillMaxWidth(animatedImageSizeFraction) // Kích thước theo ảnh
-                    .aspectRatio(imageAspectRatio) // Sử dụng biến đã đổi tên
+                    .fillMaxWidth(animatedImageSizeFraction) // Size according to image
+                    .aspectRatio(imageAspectRatio) // Use renamed variable
                     .padding(top = 4.dp)
                     .border(1.dp, Color.LightGray, RoundedCornerShape(8.dp)),
-                onCloseDrawing = { onDraw(null) } // Tắt chế độ vẽ
+                onCloseDrawing = { onDraw(null) } // Turn off drawing mode
             )
         }
     }
@@ -282,7 +287,7 @@ object BoxScopeInstance {
     @Composable
     fun BoxScope.ImageActionMenu(
         isResized: Boolean, onDescribe: () -> Unit, onDraw: () -> Unit,
-        onResize: () -> Unit, // Đã thêm onResize vào đây
+        onResize: () -> Unit, // Added onResize here
         onCopy: () -> Unit, onOpenInGallery: () -> Unit, onDelete: () -> Unit
     ) {
         Row(
@@ -329,7 +334,7 @@ fun ImageDescriptionEditor(
     )
 }
 
-@OptIn(ExperimentalComposeUiApi::class) // Thêm annotation này
+@OptIn(ExperimentalComposeUiApi::class) // Add this annotation
 @Composable
 fun ImageDrawingCanvas(
     modifier: Modifier = Modifier,
@@ -376,7 +381,7 @@ fun ImageDrawingCanvas(
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f) // Chiếm phần còn lại của không gian
+                .weight(1f) // Take the remaining space
                 .background(Color.White)
                 .pointerInput(Unit) {
                     detectDragGestures(
@@ -389,8 +394,8 @@ fun ImageDrawingCanvas(
                         onDragCancel = {
                             // Handle cancel
                         },
-                        onDrag = { change: PointerInputChange, dragAmount: Offset -> // Chỉ định rõ kiểu cho change và dragAmount
-                            change.consume() // Sử dụng consume() từ PointerInputChange
+                        onDrag = { change: PointerInputChange, dragAmount: Offset -> // Specify types for change and dragAmount
+                            change.consume() // Use consume() from PointerInputChange
                             path.lineTo(change.position.x, change.position.y)
                         }
                     )
@@ -506,12 +511,12 @@ fun AudioBlockComposable(
     block: AudioBlock,
     onDelete: () -> Unit,
     onTogglePlaying: (String, String?) -> Unit,
-    onStopRecording: () -> Unit // Giữ lại callback này nếu muốn hiển thị nút dừng trong khối
+    onStopRecording: () -> Unit // Keep this callback if you want to show stop button in block
 ) {
-    val backgroundColor = Color(0xFFFFF7E6) // Màu nền nhạt tương tự ảnh
-    val accentColor = Color(0xFFFFC700) // Màu vàng/cam cho biểu tượng và sóng âm
+    val backgroundColor = Color(0xFFFFF7E6) // Changed back to the old color
+    val accentColor = Color(0xFFFFC700) // Yellow/orange color for icon and waveform
 
-    // Hàm định dạng thời lượng (để sử dụng cục bộ trong Composable nếu cần)
+    // Function to format duration (for local use in Composable if needed)
     fun formatDuration(millis: Long): String {
         val minutes = TimeUnit.MILLISECONDS.toMinutes(millis)
         val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) - TimeUnit.MINUTES.toSeconds(minutes)
@@ -522,19 +527,19 @@ fun AudioBlockComposable(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp),
-        shape = RoundedCornerShape(12.dp), // Góc bo tròn lớn hơn
+        shape = RoundedCornerShape(12.dp), // Larger rounded corners
         colors = CardDefaults.cardColors(containerColor = backgroundColor),
         elevation = CardDefaults.cardElevation(2.dp)
     ) {
         Row(
             modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 0.dp) // Tăng padding để rộng hơn
+                .padding(horizontal = 16.dp, vertical = 2.dp) // Increase padding for wider space
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // [CẬP NHẬT UI] Chỉ hiển thị UI phát lại cho khối âm thanh đã lưu
-            // UI ghi âm sẽ nằm ở RecordingScreen riêng
+            // [UPDATE UI] Only display playback UI for saved audio blocks
+            // Recording UI will be in a separate RecordingScreen
             IconButton(
                 onClick = { onTogglePlaying(block.id, block.filePath) },
                 enabled = block.filePath != null
@@ -542,7 +547,7 @@ fun AudioBlockComposable(
                 Icon(
                     imageVector = if (block.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, // Play/Pause
                     contentDescription = if (block.isPlaying) "Pause" else "Play",
-                    tint = accentColor, // Màu vàng/cam
+                    tint = accentColor, // Yellow/orange color
                     modifier = Modifier.size(32.dp)
                 )
             }
@@ -550,7 +555,7 @@ fun AudioBlockComposable(
 
             Spacer(Modifier.width(12.dp))
 
-            // Thời lượng và sóng âm
+            // Duration and waveform
             Row(
                 modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
@@ -563,33 +568,46 @@ fun AudioBlockComposable(
                     modifier = Modifier.padding(end = 4.dp)
                 )
 
-                // Giả lập sóng âm (waveform)
-                val waveformHeights = remember {
-                    List(20) {
-                        (5..20).random().dp
-                    }
-                }
-                Row(
-                    modifier = Modifier
-                        .height(24.dp)
-                        .weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    waveformHeights.forEach { height ->
-                        Box(
-                            modifier = Modifier
-                                .width(2.dp)
-                                .height(height)
-                                .background(accentColor, RoundedCornerShape(1.dp))
-                        )
-                    }
-                }
+                var waveformProgress by remember { mutableStateOf(0F) }
+
+                // [NEW] Using AudioWaveform library with direct parameters
+//                AudioWaveform(
+//                    modifier = Modifier
+//                        .height(24.dp)
+//                        .weight(1f),
+//                    amplitudes = block.amplitudes,
+//                    progress = 0f, // Placeholder for now
+//                    onProgressChange = { waveformProgress = it },
+//                    waveformBrush = SolidColor(accentColor),
+//                    progressBrush = SolidColor(accentColor.copy(alpha = 0.4f)),
+//                    spikeWidth = 1.dp,
+//                    spikeRadius = 0.5.dp,
+//                    spikePadding = 1.dp
+//                )
+
+                AudioWaveform(
+                    modifier = Modifier.fillMaxWidth(),
+                    // Spike DrawStyle: Fill or Stroke
+                    style = Fill,
+//                    waveformAlignment = WaveformAlignment.Center,
+                    amplitudeType = AmplitudeType.Avg,
+                    // Colors could be updated with Brush API
+                    progressBrush = SolidColor(accentColor.copy(alpha = 0.4f)),
+                    waveformBrush = SolidColor(accentColor),
+                    spikeWidth = 4.dp,
+                    spikePadding = 2.dp,
+                    spikeRadius = 4.dp,
+                    progress = waveformProgress,
+                    amplitudes = block.amplitudes,
+                    onProgressChange = { waveformProgress = it },
+                    onProgressChangeFinished = {}
+                )
+
             }
 
             Spacer(Modifier.width(12.dp))
 
-            // Nút xóa (chỉ hiển thị khi không ghi âm)
+            // Delete button (only visible when not recording)
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, "Delete", tint = Color.Gray)
             }

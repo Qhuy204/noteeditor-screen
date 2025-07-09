@@ -1,4 +1,3 @@
-// File: Toolbars.kt
 package com.example.noteeditor.composables
 
 import androidx.compose.animation.*
