@@ -67,5 +67,5 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("com.github.squti:Android-Wave-Recorder:1.7.0")
     implementation("com.mohamedrejeb.richeditor:richeditor-compose:1.0.0-rc13")
-
+    implementation("com.raedapps:rasmview:1.2.1")
 }

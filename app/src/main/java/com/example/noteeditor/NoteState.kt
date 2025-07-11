@@ -1,19 +1,30 @@
+// File: NoteState.kt
 package com.example.noteeditor
 
 import android.net.Uri
 import android.util.Log
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
+import com.example.noteeditor.composables.Style // Import Style enum
 import java.text.SimpleDateFormat
 import java.util.*
+// Removed RichTextState and rememberRichTextState imports from here, as they are UI-specific and will be managed in ViewModel/Composable.
+// import com.mohamedrejeb.richeditor.model.RichTextState
+// import com.mohamedrejeb.richeditor.model.rememberRichTextState
 
+// --- STATE CLASSES ---
 
 @Stable
 // Cập nhật ContentBlock để có thể truyền id vào constructor
@@ -136,6 +147,16 @@ class SeparatorBlock(id: String = UUID.randomUUID().toString()) : ContentBlock(i
     override fun deepCopy(): ContentBlock = SeparatorBlock(id)
 }
 
+// [MỚI] Khối nội dung cho bản vẽ
+@Stable
+class DrawingBlock(
+    @Transient val bitmap: ImageBitmap, // Lưu bản vẽ dưới dạng bitmap
+    id: String = UUID.randomUUID().toString()
+) : ContentBlock(id) {
+    // Bitmap không nên được sao chép trực tiếp, nhưng để đơn giản, chúng ta sẽ giữ tham chiếu
+    override fun deepCopy(): ContentBlock = DrawingBlock(bitmap, id)
+}
+
 
 @Stable
 class NoteState {
@@ -156,9 +177,9 @@ class NoteState {
     // [MỚI] Trạng thái cho tính năng vẽ trên ảnh
     var drawingImageId by mutableStateOf<String?>(null)
 
-    // [ĐÃ XÓA] currentRichTextState không còn nằm trong NoteState. ViewModel sẽ quản lý nó.
-    // @delegate:Transient
-    // var currentRichTextState by mutableStateOf(RichTextState())
+    // [MỚI] Trạng thái cho canvas vẽ
+    var isDrawingCanvasOpen by mutableStateOf(false)
+    var imageUriForDrawing by mutableStateOf<Uri?>(null)
 
 
     fun deepCopy(): NoteState {
@@ -178,6 +199,8 @@ class NoteState {
         new.draggingBlockId = this.draggingBlockId // Sao chép trạng thái kéo
         new.dropTargetIndex = this.dropTargetIndex // Sao chép trạng thái vị trí thả
         new.drawingImageId = this.drawingImageId // Sao chép trạng thái vẽ
+        new.isDrawingCanvasOpen = this.isDrawingCanvasOpen // Sao chép trạng thái canvas
+        new.imageUriForDrawing = this.imageUriForDrawing // Sao chép URI ảnh cho canvas
 
         return new
     }
@@ -279,6 +302,12 @@ class NoteState {
                 is SeparatorBlock -> {
                     if (otherBlock !is SeparatorBlock) {
                         Log.d("ContentEqual", "SeparatorBlock: Type mismatch at index $i.")
+                        return false
+                    }
+                }
+                is DrawingBlock -> {
+                    if (otherBlock !is DrawingBlock || thisBlock.bitmap != otherBlock.bitmap) {
+                        Log.d("ContentEqual", "DrawingBlock: Bitmaps are different at index $i.")
                         return false
                     }
                 }

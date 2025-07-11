@@ -1,3 +1,4 @@
+// File: Toolbars.kt
 package com.example.noteeditor.composables
 
 import androidx.compose.animation.*
@@ -98,7 +99,7 @@ fun TransformingBottomToolbar(
     onTextBgColorChange: (Color) -> Unit,
     // --- Main Actions ---
     onAddImageClick: () -> Unit,
-    onAddCheckboxClick: () -> Unit,
+    onOpenCanvasClick: () -> Unit, // [CẬP NHẬT] Thay thế onAddCheckboxClick
     onAddAudioClick: () -> Unit,
     onAddMoreClick: (Boolean) -> Unit,
     onAddSeparator: () -> Unit,
@@ -180,7 +181,7 @@ fun TransformingBottomToolbar(
                         MainToolbarContent(
                             modifier = glassModifier,
                             onAddImageClick = onAddImageClick,
-                            onAddCheckboxClick = onAddCheckboxClick,
+                            onOpenCanvasClick = onOpenCanvasClick, // [CẬP NHẬT]
                             onAddAudioClick = onAddAudioClick,
                             onToggleFormatting = onToggleFormattingMode,
                             onAddMoreClick = { onAddMoreClick(true) }
@@ -264,7 +265,7 @@ private fun MainToolbarContent(
     modifier: Modifier = Modifier,
     onToggleFormatting: () -> Unit,
     onAddImageClick: () -> Unit,
-    onAddCheckboxClick: () -> Unit,
+    onOpenCanvasClick: () -> Unit, // [CẬP NHẬT]
     onAddAudioClick: () -> Unit,
     onAddMoreClick: () -> Unit
 ) {
@@ -276,7 +277,7 @@ private fun MainToolbarContent(
         ToolbarIconButton(icon = Icons.Default.TextFields, contentDescription = "Text Options", onClick = onToggleFormatting)
         ToolbarIconButton(icon = Icons.Default.Image, contentDescription = "Add Image", onClick = onAddImageClick)
         ToolbarIconButton(icon = Icons.Default.Mic, contentDescription = "Record Audio", onClick = onAddAudioClick)
-        ToolbarIconButton(icon = Icons.Default.Checklist, contentDescription = "Add Checkbox", onClick = onAddCheckboxClick)
+        ToolbarIconButton(icon = Icons.Default.Draw, contentDescription = "Open Drawing Canvas", onClick = onOpenCanvasClick) // [CẬP NHẬT]
         ToolbarIconButton(icon = Icons.Default.AddCircleOutline, contentDescription = "Add More", onClick = onAddMoreClick)
     }
 }

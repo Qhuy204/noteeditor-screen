@@ -9,8 +9,10 @@ import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -24,6 +26,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusState // Added import
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -40,6 +44,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.noteeditor.composables.*
 import java.io.File
 import java.util.Objects
+import com.mohamedrejeb.richeditor.model.RichTextState
+import com.mohamedrejeb.richeditor.ui.material3.OutlinedRichTextEditor
+import com.mohamedrejeb.richeditor.ui.material3.RichTextEditor
+import androidx.compose.ui.text.TextStyle as ComposeTextStyle
+import com.example.noteeditor.screens.DrawingCanvasScreen
+import com.example.noteeditor.viewmodels.DrawingViewModel
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -134,6 +144,20 @@ fun NoteEditorScreen(
         } else {
             Log.d("NoteEditorScreen", "Image capture cancelled or failed.")
         }
+    }
+
+    // [MỚI] Hiển thị màn hình vẽ khi cần
+    if (uiState.isDrawingCanvasOpen) {
+        DrawingCanvasScreen(
+            drawingViewModel = viewModel(DrawingViewModel::class.java), // Use a dedicated ViewModel
+            backgroundImageUri = uiState.imageUriForDrawing,
+            onSave = { bitmap ->
+                viewModel.saveDrawing(bitmap)
+            },
+            onClose = {
+                viewModel.closeDrawingCanvas()
+            }
+        )
     }
 
     Scaffold(
@@ -254,9 +278,9 @@ fun NoteEditorScreen(
                         showImageSourceSheet = true
                         Log.d("NoteEditorScreen", "Image source sheet opened.")
                     },
-                    onAddCheckboxClick = {
-                        viewModel.addCheckbox()
-                        Log.d("NoteEditorScreen", "Added checkbox.")
+                    onOpenCanvasClick = { // [CẬP NHẬT]
+                        viewModel.openDrawingCanvas()
+                        Log.d("NoteEditorScreen", "Opened drawing canvas.")
                     },
                     onAddMoreClick = {
                         showAddMoreMenu = it
@@ -554,6 +578,12 @@ fun NoteEditorScreen(
                                         Log.e("NoteEditorScreen", "No app found to open image for ID: $imageIdToOpen")
                                     }
                                 }
+                            },
+                            onOpenInCanvas = { imageId -> // [MỚI]
+                                val imageBlock = uiState.content.find { it.id == imageId } as? ImageBlock
+                                imageBlock?.uri?.let { uri ->
+                                    viewModel.openDrawingCanvas(uri)
+                                }
                             }
                         )
                         is CheckboxBlock -> CheckboxBlockComposable(block,
@@ -603,6 +633,9 @@ fun NoteEditorScreen(
                             viewModel.onRadioSelectionChanged(block.id, it)
                             Log.d("NoteEditorScreen", "RadioGroupBlock selected item for ID ${block.id}: $it")
                         })
+                        is DrawingBlock -> { // [MỚI]
+                            DrawingBlockComposable(block = block)
+                        }
                     }
 
                     if (isDropTarget && draggingBlockIndex != null && draggingBlockIndex != index) {

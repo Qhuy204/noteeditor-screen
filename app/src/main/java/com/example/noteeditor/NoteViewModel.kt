@@ -1,16 +1,16 @@
+// File: NoteViewModel.kt
 package com.example.noteeditor
 
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.media.AudioFormat
-import android.media.AudioRecord
 import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontStyle
@@ -21,7 +21,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.TextUnit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.mohamedrejeb.richeditor.model.RichTextState
+import com.mohamedrejeb.richeditor.model.RichTextState // Import RichTextState
+import com.mohamedrejeb.richeditor.model.rememberRichTextState // Import rememberRichTextState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,8 +33,6 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import kotlin.math.abs
-import kotlin.math.log10
 
 class NoteViewModel : ViewModel() {
 
@@ -50,26 +49,24 @@ class NoteViewModel : ViewModel() {
 
     private var mediaRecorder: MediaRecorder? = null
     private var mediaPlayer: MediaPlayer? = null
-    private var audioRecord: AudioRecord? = null // [NEW] AudioRecord instance
     private var currentRecordingFilePath: String? = null
     private var currentPlayingAudioBlockId: String? = null
     private var recordingJob: Job? = null
-    private var waveformJob: Job? = null // [NEW] Job for waveform collection
 
-    // Limit the number of undo/redo states
+    // Giới hạn số lượng trạng thái undo/redo
     private val MAX_STACK_SIZE = 50
 
-    // [NEW] Map to store RichTextState for each TextBlock
+    // [MỚI] Map để lưu trữ RichTextState cho từng TextBlock
     private val richTextStates: MutableMap<String, RichTextState> = mutableMapOf()
 
-    // [NEW] StateFlow to track RichTextState of the currently focused block (for Toolbar)
+    // [MỚI] StateFlow để theo dõi RichTextState của khối đang được focus (dành cho Toolbar)
     private val _activeRichTextState = MutableStateFlow(RichTextState())
     val activeRichTextState: StateFlow<RichTextState> = _activeRichTextState.asStateFlow()
 
     init {
-        // Push initial state to undo stack
+        // Đẩy trạng thái khởi tạo vào undo stack
         val initialState = _uiState.value.deepCopy()
-        // Initialize RichTextState for initial TextBlocks
+        // Khởi tạo RichTextState cho các TextBlock ban đầu
         initialState.content.filterIsInstance<TextBlock>().forEach { textBlock ->
             richTextStates[textBlock.id] = RichTextState().apply { setHtml(textBlock.htmlContent) }
         }
@@ -77,51 +74,51 @@ class NoteViewModel : ViewModel() {
         updateUndoRedoButtons()
     }
 
-    // Update the state of Undo/Redo buttons
+    // Cập nhật trạng thái của các nút Undo/Redo
     private fun updateUndoRedoButtons() {
         _canUndo.value = undoStack.size > 1
         _canRedo.value = redoStack.size > 0
         Log.d("UndoRedoButtons", "canUndo: ${_canUndo.value}, canRedo: ${_canRedo.value}")
     }
 
-    // Add state to undo stack, limit size
+    // Thêm trạng thái vào undo stack, giới hạn kích thước
     private fun addToUndoStack(state: NoteState) {
         undoStack.add(state)
         if (undoStack.size > MAX_STACK_SIZE) {
-            undoStack.removeAt(0) // Remove the oldest element
+            undoStack.removeAt(0) // Xóa phần tử cũ nhất
         }
         Log.d("UndoRedoStack", "Added to undoStack. Size: ${undoStack.size}")
     }
 
-    // Add state to redo stack, limit size
+    // Thêm trạng thái vào redo stack, giới hạn kích thước
     private fun addToRedoStack(state: NoteState) {
         redoStack.add(state)
         if (redoStack.size > MAX_STACK_SIZE) {
-            redoStack.removeAt(0) // Remove the oldest element
+            redoStack.removeAt(0) // Xóa phần tử cũ nhất
         }
         Log.d("UndoRedoStack", "Added to redoStack. Size: ${redoStack.size}")
     }
 
-    // Save current state to undo stack if there's a significant difference
+    // Lưu trạng thái hiện tại vào undo stack nếu có sự khác biệt đáng kể
     private fun saveStateForUndoInternal(stateToSave: NoteState) {
         val lastSavedState = undoStack.lastOrNull()
 
-        // Only add to stack if current state is significantly different from the last saved state
+        // Chỉ thêm vào stack nếu trạng thái hiện tại khác biệt đáng kể so với trạng thái cuối cùng đã lưu
         if (lastSavedState == null) {
             Log.d("UndoRedo", "Saving initial state (lastSavedState is null).")
             addToUndoStack(stateToSave)
-            redoStack.clear() // Clear redo stack when a new operation occurs
+            redoStack.clear() // Xóa redo stack khi có thao tác mới
         } else if (!lastSavedState.isContentEqual(stateToSave)) {
             Log.d("UndoRedo", "Content diff detected. Saving new state.")
             addToUndoStack(stateToSave)
-            redoStack.clear() // Clear redo stack when a new operation occurs (not from undo/redo)
+            redoStack.clear() // Xóa redo stack khi có thao tác mới (không phải từ undo/redo)
         } else {
             Log.d("UndoRedo", "State is content equal, skipping save.")
         }
         updateUndoRedoButtons()
     }
 
-    // This function is called when a block loses focus or an action is completed
+    // Hàm này được gọi khi một khối mất tiêu điểm hoặc một hành động hoàn tất
     fun commitActionForUndo() {
         val currentState = _uiState.value.deepCopy()
         val lastSavedState = undoStack.lastOrNull()
@@ -132,22 +129,22 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-    // Perform Undo operation
+    // Thực hiện thao tác Undo
     fun undo() {
-        // Only undo if there are at least 2 states (current state and previous state)
+        // Chỉ undo nếu có ít nhất 2 trạng thái (trạng thái hiện tại và trạng thái trước đó)
         if (undoStack.size > 1) {
-            // Save current state to redo stack before undoing
+            // Lưu trạng thái hiện tại vào redo stack trước khi undo
             val currentState = _uiState.value.deepCopy()
             addToRedoStack(currentState)
 
-            // Remove current state from undo stack
+            // Xóa trạng thái hiện tại khỏi undo stack
             undoStack.removeAt(undoStack.lastIndex)
 
-            // Update UI to previous state
+            // Cập nhật UI về trạng thái trước đó
             val restoredState = undoStack.last().deepCopy()
             _uiState.value = restoredState
 
-            // [NEW] Update RichTextState in map based on restored state
+            // [MỚI] Cập nhật RichTextState trong map dựa trên trạng thái được khôi phục
             updateRichTextStatesFromNoteState(restoredState)
 
             updateUndoRedoButtons()
@@ -157,18 +154,18 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-    // Perform Redo operation
+    // Thực hiện thao tác Redo
     fun redo() {
         if (redoStack.isNotEmpty()) {
-            // Save current state to undo stack before redoing
+            // Lưu trạng thái hiện tại vào undo stack trước khi redo
             val currentState = _uiState.value.deepCopy()
             addToUndoStack(currentState)
 
-            // Get the next state from redo stack
+            // Lấy trạng thái tiếp theo từ redo stack
             val nextState = redoStack.removeAt(redoStack.lastIndex)
             _uiState.value = nextState
 
-            // [NEW] Update RichTextState in map based on restored state
+            // [MỚI] Cập nhật RichTextState trong map dựa trên trạng thái được khôi phục
             updateRichTextStatesFromNoteState(nextState)
 
             updateUndoRedoButtons()
@@ -178,67 +175,67 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-    // [NEW] Function to update RichTextState in map when NoteState changes (undo/redo)
+    // [MỚI] Hàm để cập nhật RichTextState trong map khi trạng thái NoteState thay đổi (undo/redo)
     private fun updateRichTextStatesFromNoteState(noteState: NoteState) {
         val newRichTextStates = mutableMapOf<String, RichTextState>()
         noteState.content.filterIsInstance<TextBlock>().forEach { textBlock ->
             val existingState = richTextStates[textBlock.id]
             if (existingState != null) {
-                // If RichTextState already exists, update its content
+                // Nếu RichTextState đã tồn tại, cập nhật nội dung của nó
                 existingState.setHtml(textBlock.htmlContent)
                 newRichTextStates[textBlock.id] = existingState
             } else {
-                // If it doesn't exist, create a new one
+                // Nếu chưa tồn tại, tạo mới
                 newRichTextStates[textBlock.id] = RichTextState().apply { setHtml(textBlock.htmlContent) }
             }
         }
-        // Remove unnecessary RichTextStates
+        // Xóa các RichTextState không còn cần thiết
         richTextStates.clear()
         richTextStates.putAll(newRichTextStates)
 
-        // Update activeRichTextState if the focused block is a TextBlock
+        // Cập nhật activeRichTextState nếu khối đang focus là TextBlock
         _uiState.value.focusedBlockId?.let { focusedId ->
             if (richTextStates.containsKey(focusedId)) {
                 _activeRichTextState.value = richTextStates[focusedId]!!
             } else {
-                _activeRichTextState.value = RichTextState() // Reset if focused block is no longer a TextBlock
+                _activeRichTextState.value = RichTextState() // Reset nếu khối focus không còn là TextBlock
             }
-        } ?: run { _activeRichTextState.value = RichTextState() } // Reset if no block is focused
+        } ?: run { _activeRichTextState.value = RichTextState() } // Reset nếu không có khối nào focus
     }
 
-    // Helper function to perform an undoable action
+    // Hàm hỗ trợ để thực hiện một hành động có thể hoàn tác
     private fun performUndoableAction(action: () -> Unit) {
-        // Save state *before* the action is performed
+        // Lưu trạng thái *trước khi* hành động được thực hiện
         saveStateForUndoInternal(_uiState.value.deepCopy())
         action()
-        // After the action is complete, update button states
+        // Sau khi hành động hoàn tất, cập nhật lại trạng thái nút
         updateUndoRedoButtons()
     }
 
-    // Ensure onTitleChange also calls saveStateForUndoInternal
+    // Đảm bảo onTitleChange cũng gọi saveStateForUndoInternal
     fun onTitleChange(newTitle: String) {
-        // Only save state if title actually changes
+        // Chỉ lưu trạng thái nếu tiêu đề thực sự thay đổi
         if (_uiState.value.title != newTitle) {
-            saveStateForUndoInternal(_uiState.value.deepCopy()) // Save before changing
+            saveStateForUndoInternal(_uiState.value.deepCopy()) // Lưu trước khi thay đổi
             _uiState.value.title = newTitle
             updateUndoRedoButtons()
         }
     }
 
-    // [MODIFIED] Handle TextBlock content changes (receives HTML string)
+    // [ĐÃ SỬA] Xử lý thay đổi nội dung của TextBlock (nhận HTML string)
     fun onTextBlockChange(blockId: String, newHtmlContent: String) {
         val block = _uiState.value.content.find { it.id == blockId } as? TextBlock
         if (block != null) {
             if (block.htmlContent != newHtmlContent) {
-                // Only save state if HTML content actually changes
+                // Chỉ lưu trạng thái nếu nội dung HTML thực sự thay đổi
                 saveStateForUndoInternal(_uiState.value.deepCopy())
                 block.htmlContent = newHtmlContent
             }
         }
-        updateUndoRedoButtons() // Update button states after each content change
+        updateUndoRedoButtons() // Cập nhật trạng thái nút sau mỗi thay đổi nội dung
     }
 
-    // Handle content changes for other blocks (using TextFieldValue)
+    // Xử lý thay đổi nội dung của các khối khác (sử dụng TextFieldValue)
     fun onOtherBlockChange(blockId: String, newValue: TextFieldValue) {
         val block = _uiState.value.content.find { it.id == blockId }
         when (block) {
@@ -265,10 +262,10 @@ class NoteViewModel : ViewModel() {
             }
             else -> { /* Do nothing */ }
         }
-        updateUndoRedoButtons() // Update button states after each content change
+        updateUndoRedoButtons() // Cập nhật trạng thái nút sau mỗi thay đổi nội dung
     }
 
-    // FIX: Text formatting functions have been updated to use the new API
+    // SỬA LỖI: Các hàm định dạng văn bản đã được cập nhật để sử dụng API mới
     fun toggleBold() {
         _activeRichTextState.value.toggleSpanStyle(SpanStyle(fontWeight = FontWeight.Bold))
         val isBold = _activeRichTextState.value.currentSpanStyle.fontWeight == FontWeight.Bold
@@ -323,26 +320,14 @@ class NoteViewModel : ViewModel() {
         Log.d("Formatting", "Toggled Numbered List. Current isOrderedList: ${_activeRichTextState.value.isOrderedList}")
     }
 
-//    fun indent() {
-//        // FIX: Replace 'indent' with 'increaseIndent'
-//        _activeRichTextState.value.increaseIndent()
-//        Log.d("Formatting", "Indented text.")
-//    }
-//
-//    fun outdent() {
-//        // FIX: Replace 'outdent' with 'decreaseIndent'
-//        _activeRichTextState.value.decreaseIndent()
-//        Log.d("Formatting", "Outdented text.")
-//    }
-
-    // Handle Checkbox state changes
+    // Xử lý thay đổi trạng thái của Checkbox
     fun onCheckboxCheckedChange(blockId: String, isChecked: Boolean) {
         performUndoableAction {
             (_uiState.value.content.find { it.id == blockId } as? CheckboxBlock)?.isChecked = isChecked
         }
     }
 
-    // Add a new block at the cursor position
+    // Thêm một khối mới tại vị trí con trỏ
     private fun addBlockAtCursor(newBlock: ContentBlock) {
         performUndoableAction {
             val state = _uiState.value
@@ -351,21 +336,21 @@ class NoteViewModel : ViewModel() {
 
             state.content.add(insertionPoint, newBlock)
 
-            // [NEW] If it's a TextBlock, add RichTextState to map
+            // [MỚI] Nếu là TextBlock, thêm RichTextState vào map
             if (newBlock is TextBlock) {
                 richTextStates[newBlock.id] = RichTextState().apply { setHtml(newBlock.htmlContent) }
             }
 
-            // Ensure there's an empty TextBlock after insertion if the new block is not text
-            if (newBlock !is TextBlock && newBlock !is SubHeaderBlock && newBlock !is NumberedListItemBlock && newBlock !is SeparatorBlock && newBlock !is AudioBlock && newBlock !is ImageBlock) {
+            // Đảm bảo có một TextBlock trống sau khi chèn nếu khối mới không phải là văn bản
+            if (newBlock !is TextBlock && newBlock !is SubHeaderBlock && newBlock !is NumberedListItemBlock && newBlock !is SeparatorBlock && newBlock !is AudioBlock && newBlock !is ImageBlock && newBlock !is DrawingBlock) {
                 val newTextBlock = TextBlock()
                 state.content.add(insertionPoint + 1, newTextBlock)
-                richTextStates[newTextBlock.id] = RichTextState().apply { setHtml(newTextBlock.htmlContent) } // Add to map
+                richTextStates[newTextBlock.id] = RichTextState().apply { setHtml(newTextBlock.htmlContent) } // Thêm vào map
                 state.focusedBlockId = newTextBlock.id
-            } else if (newBlock is TextBlock || newBlock is SubHeaderBlock || newBlock is NumberedListItemBlock || newBlock is AudioBlock || newBlock is ImageBlock) {
+            } else if (newBlock is TextBlock || newBlock is SubHeaderBlock || newBlock is NumberedListItemBlock || newBlock is AudioBlock || newBlock is ImageBlock || newBlock is DrawingBlock) {
                 state.focusedBlockId = newBlock.id
             } else {
-                // If it's a SeparatorBlock, set focus back to the previous block if any
+                // Nếu là SeparatorBlock, đặt focus về khối trước đó nếu có
                 if (focusedIndex != -1 && focusedIndex < state.content.size) {
                     state.focusedBlockId = state.content[focusedIndex].id
                 } else if (state.content.isNotEmpty()) {
@@ -378,26 +363,26 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-    // Add image block at cursor position
+    // Thêm khối ảnh tại vị trí con trỏ
     fun addImageAtCursor(uri: Uri) = addBlockAtCursor(ImageBlock(uri = uri))
 
-    // [UPDATE] Start new audio recording
+    // [CẬP NHẬT] Bắt đầu ghi âm mới
     fun startNewAudioRecording(context: Context) {
         if (_uiState.value.isRecordingActive) {
-            return // Ignore if already recording
+            return // Bỏ qua nếu đang ghi âm
         }
 
         val outputFile = File(context.cacheDir, "audio_${System.currentTimeMillis()}.mp3")
         currentRecordingFilePath = outputFile.absolutePath
 
-        // Create a temporary audio block, not yet added to main content
+        // Tạo một khối âm thanh tạm thời, chưa thêm vào nội dung chính
         val tempAudioBlock = AudioBlock(
             uri = Uri.fromFile(outputFile),
             initialIsRecording = true,
             initialFilePath = outputFile.absolutePath
         )
 
-        // Update state to display recording UI
+        // Cập nhật trạng thái để hiển thị UI ghi âm
         _uiState.update { currentState ->
             currentState.deepCopy().apply {
                 this.currentRecordingAudioBlock = tempAudioBlock
@@ -408,7 +393,7 @@ class NoteViewModel : ViewModel() {
         startRecordingInternal(currentRecordingFilePath!!, context)
     }
 
-    // Start internal recording
+    // Bắt đầu ghi âm nội bộ
     private fun startRecordingInternal(filePath: String, context: Context) {
         val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             MediaRecorder(context)
@@ -418,7 +403,7 @@ class NoteViewModel : ViewModel() {
         }
         mediaRecorder = recorder.apply {
             setAudioSource(MediaRecorder.AudioSource.MIC)
-            // FIX: Use constants from MediaRecorder class
+            // SỬA LỖI: Sử dụng hằng số từ lớp MediaRecorder
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             setOutputFile(filePath)
@@ -429,98 +414,32 @@ class NoteViewModel : ViewModel() {
                     val startTime = System.currentTimeMillis()
                     while (_uiState.value.isRecordingActive) {
                         val elapsedMillis = System.currentTimeMillis() - startTime
-                        // Update time on temporary block
+                        // Cập nhật thời gian trên khối tạm thời
                         _uiState.value.currentRecordingAudioBlock?.recordingTimeMillis = elapsedMillis
                         _uiState.value.currentRecordingAudioBlock?.duration = formatDuration(elapsedMillis)
                         delay(1000)
                     }
                 }
-                // [NEW] Start collecting waveform data
-                startWaveformCollection()
                 Log.d("AudioRecording", "Recording started: $filePath")
             } catch (e: IOException) {
                 Log.e("AudioRecording", "Recording failed: ${e.message}")
-                cancelRecording() // Cancel if unable to start
+                cancelRecording() // Hủy nếu không thể bắt đầu
             }
         }
     }
 
-    // [NEW] Start collecting waveform data
-    private fun startWaveformCollection() {
-        val sampleRate = 44100 // Common sample rate
-        val channelConfig = AudioFormat.CHANNEL_IN_MONO
-        val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-        val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-
-        if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
-            Log.e("Waveform", "AudioRecord.getMinBufferSize failed.")
-            return
-        }
-
-        audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            sampleRate,
-            channelConfig,
-            audioFormat,
-            bufferSize
-        )
-
-        if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-            Log.e("Waveform", "AudioRecord initialization failed.")
-            releaseAudioRecord()
-            return
-        }
-
-        audioRecord?.startRecording()
-
-        val audioBuffer = ShortArray(bufferSize / 2) // Using ShortArray for 16-bit PCM
-
-        waveformJob = viewModelScope.launch {
-            while (_uiState.value.isRecordingActive && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
-                val read = audioRecord?.read(audioBuffer, 0, audioBuffer.size) ?: 0
-                if (read > 0) {
-                    // Calculate amplitude
-                    var maxAmplitude = 0
-                    for (i in 0 until read) {
-                        maxAmplitude = maxOf(maxAmplitude, abs(audioBuffer[i].toInt()))
-                    }
-
-                    // Normalize amplitude to a range (e.g., 0-100 or 0-50 for visual representation)
-                    // A simple normalization: log scale for better visual distinction of quiet sounds
-                    val normalizedAmplitude = if (maxAmplitude > 0) {
-                        (20 * log10(maxAmplitude.toDouble() / 32767.0) + 90).toInt().coerceIn(0, 100) / 2 // Normalize to 0-50
-                    } else {
-                        0
-                    }
-
-                    // Update the AudioBlock's amplitudes list
-                    _uiState.value.currentRecordingAudioBlock?.amplitudes?.add(normalizedAmplitude)
-                    // Limit the number of amplitudes to keep the waveform visually manageable
-                    // For example, keep the last 100 amplitudes
-                    if (_uiState.value.currentRecordingAudioBlock?.amplitudes?.size ?: 0 > 100) {
-                        _uiState.value.currentRecordingAudioBlock?.amplitudes?.removeAt(0)
-                    }
-                }
-                delay(50) // Adjust delay to control waveform update frequency
-            }
-            releaseAudioRecord()
-        }
-    }
-
-    // [UPDATE] Save recorded audio
+    // [CẬP NHẬT] Lưu bản ghi âm
     fun saveRecordedAudio() {
-        // Do not save recordings that are too short (e.g., less than 1 second)
+        // Không lưu các bản ghi quá ngắn (ví dụ: dưới 1 giây)
         val recordedMillis = _uiState.value.currentRecordingAudioBlock?.recordingTimeMillis ?: 0L
         if (recordedMillis < 1000) {
             cancelRecording()
             return
         }
 
-        // Stop recording process
+        // Dừng quá trình ghi
         recordingJob?.cancel()
         recordingJob = null
-        waveformJob?.cancel() // [NEW] Cancel waveform job
-        waveformJob = null
 
         val blockToSave = _uiState.value.currentRecordingAudioBlock
         val path = currentRecordingFilePath
@@ -530,34 +449,31 @@ class NoteViewModel : ViewModel() {
             Log.d("AudioRecording", "Recording stopped for saving: $path")
         } catch (e: Exception) {
             Log.e("AudioRecording", "Error stopping recorder, cancelling.", e)
-            path?.let { File(it).delete() } // Delete temporary file if stopping fails
-            resetRecordingState() // Reset state
+            path?.let { File(it).delete() } // Xóa file tạm nếu dừng lỗi
+            resetRecordingState() // Đặt lại trạng thái
             return
         } finally {
             releaseRecorder()
-            releaseAudioRecord() // [NEW] Release AudioRecord
         }
 
-        // Finalize audio block and add to note
+        // Hoàn thiện khối âm thanh và thêm vào ghi chú
         if (blockToSave != null && path != null) {
             val finalDuration = getFileDuration(path)
             blockToSave.duration = finalDuration
             blockToSave.isRecording = false
 
-            // Add the finalized block to content (this action is undoable)
+            // Thêm khối đã hoàn tất vào nội dung (hành động này có thể hoàn tác)
             addBlockAtCursor(blockToSave)
         }
 
-        // Reset recording state
+        // Đặt lại trạng thái ghi âm
         resetRecordingState()
     }
 
-    // [UPDATE] Cancel recording
+    // [CẬP NHẬT] Hủy ghi âm
     fun cancelRecording() {
         recordingJob?.cancel()
         recordingJob = null
-        waveformJob?.cancel() // [NEW] Cancel waveform job
-        waveformJob = null
 
         try {
             mediaRecorder?.stop()
@@ -565,17 +481,16 @@ class NoteViewModel : ViewModel() {
             Log.w("AudioRecording", "Exception on stopping recorder during cancellation: ${e.message}")
         }
         releaseRecorder()
-        releaseAudioRecord() // [NEW] Release AudioRecord
 
-        // Delete temporary audio file
+        // Xóa tệp âm thanh tạm thời
         currentRecordingFilePath?.let { File(it).delete() }
 
-        // Reset state without adding anything to the note
+        // Đặt lại trạng thái mà không thêm bất cứ thứ gì vào ghi chú
         resetRecordingState()
         Log.d("AudioRecording", "Recording cancelled.")
     }
 
-    // Utility function to reset recording state
+    // Hàm tiện ích để đặt lại trạng thái ghi âm
     private fun resetRecordingState() {
         _uiState.update {
             it.deepCopy().apply {
@@ -586,7 +501,7 @@ class NoteViewModel : ViewModel() {
         currentRecordingFilePath = null
     }
 
-    // Get audio file duration
+    // Lấy thời lượng của tệp âm thanh
     private fun getFileDuration(path: String?): String {
         if (path == null) return "00:00"
         val file = File(path)
@@ -608,35 +523,35 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-    // Check if any audio is recording
+    // Kiểm tra xem có đang ghi âm không
     fun isAnyAudioRecording(): Boolean {
         return _uiState.value.isRecordingActive
     }
 
-    // Add Checkbox block
+    // Thêm khối Checkbox
     fun addCheckbox() = addBlockAtCursor(CheckboxBlock())
-    // Add Separator block
+    // Thêm khối Separator
     fun addSeparator() = addBlockAtCursor(SeparatorBlock())
-    // Add Toggle Switch block
+    // Thêm khối Toggle Switch
     fun addToggleSwitch() = addBlockAtCursor(ToggleSwitchBlock())
-    // Add Accordion block
+    // Thêm khối Accordion
     fun addAccordion() = addBlockAtCursor(AccordionBlock())
-    // Add Radio Group block
+    // Thêm khối Radio Group
     fun addRadioGroup() = addBlockAtCursor(RadioGroupBlock())
-    // Add SubHeader block
+    // Thêm khối SubHeader
     fun addSectionHeader() = addBlockAtCursor(SubHeaderBlock())
-    // Add Numbered List Item block
+    // Thêm khối Numbered List Item
     fun addNumberedListItem() = addBlockAtCursor(NumberedListItemBlock())
 
-    // Handle image click
+    // Xử lý click vào ảnh
     fun onImageClick(imageId: String) {
         val state = _uiState.value
         state.selectedImageId = if (state.selectedImageId == imageId) null else imageId
-        // When selecting or deselecting an image, ensure no text block is focused
+        // Khi chọn hoặc bỏ chọn ảnh, đảm bảo không có khối văn bản nào đang được focus
         setFocus(null)
     }
 
-    // Delete a block
+    // Xóa một khối
     fun deleteBlock(blockId: String) {
         performUndoableAction {
             val blockToDelete = _uiState.value.content.find { it.id == blockId }
@@ -648,25 +563,25 @@ class NoteViewModel : ViewModel() {
                     cancelRecording()
                 }
                 blockToDelete.filePath?.let { File(it).delete() }
-            } else if (blockToDelete is TextBlock) { // [NEW] Remove RichTextState from map when TextBlock is deleted
+            } else if (blockToDelete is TextBlock) { // [MỚI] Xóa RichTextState khỏi map khi TextBlock bị xóa
                 richTextStates.remove(blockId)
             }
             _uiState.value.content.removeAll { it.id == blockId }
             if (_uiState.value.selectedImageId == blockId) {
                 _uiState.value.selectedImageId = null
             }
-            // If the deleted block is the drawing block, reset drawing state
+            // Nếu khối bị xóa là khối đang vẽ, đặt lại trạng thái vẽ
             if (_uiState.value.drawingImageId == blockId) {
                 _uiState.value.drawingImageId = null
             }
-            // If the deleted block is the focused block, reset focus
+            // Nếu khối bị xóa là khối đang focus, đặt lại focus
             if (_uiState.value.focusedBlockId == blockId) {
                 setFocus(null)
             }
         }
     }
 
-    // Resize image
+    // Thay đổi kích thước ảnh
     fun resizeImage(blockId: String) {
         performUndoableAction {
             val block = _uiState.value.content.find { it.id == blockId } as? ImageBlock
@@ -676,19 +591,19 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-    // Update image description
+    // Cập nhật mô tả ảnh
     fun updateImageDescription(blockId: String, description: String) {
-        // No need for performUndoableAction here if it's just a description change that doesn't need to be saved to undo stack every time it's typed
-        // If you want to save, you need to add saveStateForUndoInternal logic similar to TextBlock
+        // Không cần performUndoableAction ở đây nếu chỉ là thay đổi mô tả mà không muốn lưu vào undo stack mỗi khi gõ
+        // Nếu muốn lưu, cần thêm logic saveStateForUndoInternal tương tự TextBlock
         (_uiState.value.content.find { it.id == blockId } as? ImageBlock)?.description = description
     }
 
-    // Toggle drawing mode on image
+    // Bật/tắt chế độ vẽ trên ảnh
     fun toggleDrawingMode(imageId: String?) {
         _uiState.update { currentState ->
             currentState.deepCopy().apply {
                 drawingImageId = if (drawingImageId == imageId) null else imageId
-                // Ensure no image is selected when drawing
+                // Đảm bảo không có ảnh nào được chọn khi đang vẽ
                 if (drawingImageId != null) {
                     selectedImageId = null
                 }
@@ -696,7 +611,7 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-    // Copy image
+    // Copy ảnh
     fun copyImage(context: Context, blockId: String) {
         val imageBlock = _uiState.value.content.find { it.id == blockId } as? ImageBlock
         imageBlock?.uri?.let { uri ->
@@ -711,48 +626,48 @@ class NoteViewModel : ViewModel() {
         } ?: Log.e("NoteViewModel", "Image block or URI not found for ID: $blockId")
     }
 
-    // Open image in gallery (placeholder logic)
+    // Mở ảnh trong thư viện (logic placeholder)
     fun openImageInGallery(blockId: String) {
         Log.d("NoteViewModel", "Opening image with ID: $blockId in gallery (Placeholder)")
     }
 
-    // Set focus to a block
+    // Đặt tiêu điểm vào một khối
     fun setFocus(blockId: String?) {
         val state = _uiState.value
         if (state.focusedBlockId != blockId) {
-            // When focus changes, commit previous action to save state
+            // Khi tiêu điểm thay đổi, commit hành động trước đó để lưu trạng thái
             if (state.focusedBlockId != null) {
                 commitActionForUndo()
             }
             state.focusedBlockId = blockId
-            // When setting focus to a block, ensure no image is selected or drawing
+            // Khi đặt focus vào một khối, đảm bảo không có ảnh nào đang được chọn hoặc vẽ
             state.selectedImageId = null
             state.drawingImageId = null
 
-            // [NEW] Update activeRichTextState when focus changes
+            // [MỚI] Cập nhật activeRichTextState khi focus thay đổi
             if (blockId != null) {
                 val focusedBlock = state.content.find { it.id == blockId }
                 if (focusedBlock is TextBlock) {
-                    // Get RichTextState from map or create new if not present (though shouldn't happen)
+                    // Lấy RichTextState từ map hoặc tạo mới nếu chưa có (dù không nên xảy ra)
                     _activeRichTextState.value = richTextStates.getOrPut(focusedBlock.id) {
                         RichTextState().apply { setHtml(focusedBlock.htmlContent) }
                     }
                 } else {
-                    _activeRichTextState.value = RichTextState() // Reset if focused block is not TextBlock
+                    _activeRichTextState.value = RichTextState() // Reset nếu khối focus không phải TextBlock
                 }
             } else {
-                _activeRichTextState.value = RichTextState() // Reset if no block is focused
+                _activeRichTextState.value = RichTextState() // Reset nếu không có khối nào focus
             }
         }
-        updateUndoRedoButtons() // Update button states when focus changes
+        updateUndoRedoButtons() // Cập nhật trạng thái nút khi tiêu điểm thay đổi
     }
 
-    // Toggle text format toolbar visibility
+    // Bật/tắt thanh công cụ định dạng văn bản
     fun toggleTextFormatToolbar(isVisible: Boolean) {
         _uiState.value.isTextFormatToolbarVisible = isVisible
     }
 
-    // Handle Accordion toggle
+    // Xử lý bật/tắt Accordion
     fun onAccordionToggled(blockId: String) {
         performUndoableAction {
             val block = _uiState.value.content.find { it.id == blockId } as? AccordionBlock
@@ -762,29 +677,29 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-    // Handle Toggle Switch state change
+    // Xử lý thay đổi trạng thái Toggle Switch
     fun onToggleSwitchChanged(blockId: String, isOn: Boolean) {
         performUndoableAction {
             (_uiState.value.content.find { it.id == blockId } as? ToggleSwitchBlock)?.isOn = isOn
         }
     }
 
-    // Handle Radio Group selection change
+    // Xử lý thay đổi lựa chọn Radio Group
     fun onRadioSelectionChanged(groupId: String, selectedItemId: String) {
         performUndoableAction {
             (_uiState.value.content.find { it.id == groupId } as? RadioGroupBlock)?.selectedId = selectedItemId
         }
     }
 
-    // Save note
+    // Lưu ghi chú
     fun saveNote() {
         viewModelScope.launch {
-            commitActionForUndo() // Ensure final state is saved
+            commitActionForUndo() // Đảm bảo trạng thái cuối cùng được lưu
             Log.d("NoteEditorDebug", "Note Saved: Title='${_uiState.value.title}', Content size=${_uiState.value.content.size}")
         }
     }
 
-    // Toggle audio playback
+    // Bật/tắt phát âm thanh
     fun togglePlaying(audioBlockId: String, filePath: String?) {
         if (filePath == null) return
 
@@ -818,7 +733,7 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-    // Stop audio playback
+    // Dừng phát âm thanh
     fun stopPlaying() {
         mediaPlayer?.apply {
             if (isPlaying) {
@@ -832,44 +747,35 @@ class NoteViewModel : ViewModel() {
         }
     }
 
-    // Release MediaPlayer
+    // Giải phóng MediaPlayer
     private fun releasePlayer() {
         mediaPlayer?.release()
         mediaPlayer = null
     }
 
-    // Release MediaRecorder
+    // Giải phóng MediaRecorder
     private fun releaseRecorder() {
         mediaRecorder?.release()
         mediaRecorder = null
     }
 
-    // [NEW] Release AudioRecord
-    private fun releaseAudioRecord() {
-        audioRecord?.stop()
-        audioRecord?.release()
-        audioRecord = null
-    }
-
-    // Format duration from milliseconds to MM:SS
+    // Định dạng thời lượng từ mili giây sang MM:SS
     private fun formatDuration(millis: Long): String {
         val minutes = TimeUnit.MILLISECONDS.toMinutes(millis)
         val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) - TimeUnit.MINUTES.toSeconds(minutes)
         return String.format("%02d:%02d", minutes, seconds)
     }
 
-    // Handle ViewModel being cleared
+    // Xử lý khi ViewModel bị xóa
     override fun onCleared() {
         super.onCleared()
         releaseRecorder()
         releasePlayer()
-        releaseAudioRecord() // [NEW] Release AudioRecord on clear
         recordingJob?.cancel()
-        waveformJob?.cancel() // [NEW] Cancel waveform job on clear
-        richTextStates.clear() // Clear all RichTextState when ViewModel is cleared
+        richTextStates.clear() // Xóa tất cả RichTextState khi ViewModel bị xóa
     }
 
-    // Function to move a ContentBlock
+    // Hàm để di chuyển một ContentBlock
     fun moveContentBlock(fromIndex: Int, toIndex: Int) {
         if (fromIndex == toIndex || fromIndex < 0 || fromIndex >= _uiState.value.content.size ||
             toIndex < 0 || toIndex > _uiState.value.content.size) {
@@ -880,27 +786,27 @@ class NoteViewModel : ViewModel() {
             val movedBlock = contentList.removeAt(fromIndex)
             contentList.add(toIndex, movedBlock)
 
-            // [NEW] When moving, ensure RichTextState of TextBlock is still correctly linked
+            // [MỚI] Khi di chuyển, đảm bảo RichTextState của TextBlock vẫn được liên kết đúng
             if (movedBlock is TextBlock) {
-                // No special action needed here as RichTextState is managed by ID
-                // and block ID does not change when moving.
+                // Không cần làm gì đặc biệt ở đây vì RichTextState đã được quản lý bằng ID
+                // và ID của block không thay đổi khi di chuyển.
             }
 
-            // Ensure there's an empty TextBlock after moving if needed
+            // Đảm bảo có một TextBlock trống sau khi di chuyển nếu cần
             if (movedBlock !is TextBlock && toIndex + 1 < contentList.size && contentList[toIndex + 1] !is TextBlock) {
                 val newTextBlock = TextBlock()
                 contentList.add(toIndex + 1, newTextBlock)
-                richTextStates[newTextBlock.id] = RichTextState().apply { setHtml(newTextBlock.htmlContent) } // Add to map
+                richTextStates[newTextBlock.id] = RichTextState().apply { setHtml(newTextBlock.htmlContent) } // Thêm vào map
             } else if (movedBlock !is TextBlock && toIndex == contentList.lastIndex) {
                 val newTextBlock = TextBlock()
                 contentList.add(newTextBlock)
-                richTextStates[newTextBlock.id] = RichTextState().apply { setHtml(newTextBlock.htmlContent) } // Add to map
+                richTextStates[newTextBlock.id] = RichTextState().apply { setHtml(newTextBlock.htmlContent) } // Thêm vào map
             }
             Log.d("NoteEditorDebug", "Moved block from $fromIndex to $toIndex")
         }
     }
 
-    // Helper functions for drag and drop
+    // Các hàm hỗ trợ kéo thả
     fun setDraggingBlockId(id: String?) {
         _uiState.update { it.deepCopy().apply { draggingBlockId = id } }
     }
@@ -909,15 +815,41 @@ class NoteViewModel : ViewModel() {
         _uiState.update { it.deepCopy().apply { dropTargetIndex = index } }
     }
 
-    // Utility function to debug undo/redo stacks
+    // Hàm tiện ích để debug undo/redo stacks
     fun getUndoRedoStackInfo(): String {
         return "UndoStack: ${undoStack.size}, RedoStack: ${redoStack.size}"
     }
 
-    // [NEW] Function to get RichTextState for a specific TextBlock
+    // [MỚI] Hàm để lấy RichTextState cho một TextBlock cụ thể
     fun getOrCreateRichTextState(blockId: String, initialHtml: String): RichTextState {
         return richTextStates.getOrPut(blockId) {
             RichTextState().apply { setHtml(initialHtml) }
         }
+    }
+
+    // [MỚI] Các hàm cho Canvas Vẽ
+    fun openDrawingCanvas(imageUri: Uri? = null) {
+        _uiState.update {
+            it.deepCopy().apply {
+                isDrawingCanvasOpen = true
+                imageUriForDrawing = imageUri
+            }
+        }
+    }
+
+    fun closeDrawingCanvas() {
+        _uiState.update {
+            it.deepCopy().apply {
+                isDrawingCanvasOpen = false
+                imageUriForDrawing = null
+            }
+        }
+    }
+
+    fun saveDrawing(bitmap: ImageBitmap) {
+        performUndoableAction {
+            addBlockAtCursor(DrawingBlock(bitmap))
+        }
+        closeDrawingCanvas()
     }
 }
